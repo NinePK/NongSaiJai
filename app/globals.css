@@ -1,10 +1,95 @@
 @import "tailwindcss";
 
+/* ---------------------------
+   Base tokens (default = light)
+---------------------------- */
 :root {
+  /* existing tokens (keep) */
   --background: #ffffff;
   --foreground: #171717;
+
+  /* admin/dashboard tokens */
+  --bg: #f6f7fb;
+  --bg-grad-1: rgba(59, 130, 246, 0.10);
+  --bg-grad-2: rgba(16, 185, 129, 0.08);
+
+  --card: rgba(255, 255, 255, 0.85);
+  --card2: rgba(255, 255, 255, 0.95);
+
+  --text: rgba(15, 23, 42, 0.92);
+  --muted: rgba(15, 23, 42, 0.62);
+
+  --border: rgba(15, 23, 42, 0.12);
+  --shadow: 0 10px 30px rgba(2, 6, 23, 0.08);
 }
 
+/* ---------------------------
+   Dark tokens: two sources
+   1) System preference (fallback)
+   2) Manual toggle via data-theme
+---------------------------- */
+
+/* 1) System preference fallback */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+
+    --bg: #05070a;
+    --bg-grad-1: rgba(59, 130, 246, 0.18);
+    --bg-grad-2: rgba(16, 185, 129, 0.12);
+
+    --card: rgba(255, 255, 255, 0.03);
+    --card2: rgba(255, 255, 255, 0.06);
+
+    --text: rgba(255, 255, 255, 0.92);
+    --muted: rgba(255, 255, 255, 0.65);
+
+    --border: rgba(255, 255, 255, 0.10);
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  }
+}
+
+/* 2) Manual override: strongest priority */
+:root[data-theme="light"] {
+  --background: #ffffff;
+  --foreground: #171717;
+
+  --bg: #f6f7fb;
+  --bg-grad-1: rgba(59, 130, 246, 0.10);
+  --bg-grad-2: rgba(16, 185, 129, 0.08);
+
+  --card: rgba(255, 255, 255, 0.85);
+  --card2: rgba(255, 255, 255, 0.95);
+
+  --text: rgba(15, 23, 42, 0.92);
+  --muted: rgba(15, 23, 42, 0.62);
+
+  --border: rgba(15, 23, 42, 0.12);
+  --shadow: 0 10px 30px rgba(2, 6, 23, 0.08);
+}
+
+:root[data-theme="dark"] {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+
+  --bg: #05070a;
+  --bg-grad-1: rgba(59, 130, 246, 0.18);
+  --bg-grad-2: rgba(16, 185, 129, 0.12);
+
+  --card: rgba(255, 255, 255, 0.03);
+  --card2: rgba(255, 255, 255, 0.06);
+
+  --text: rgba(255, 255, 255, 0.92);
+  --muted: rgba(255, 255, 255, 0.65);
+
+  --border: rgba(255, 255, 255, 0.10);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+/* ---------------------------
+   Your existing theme inline
+---------------------------- */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -12,15 +97,90 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ---------------------------
+   Base body styles (keep)
+---------------------------- */
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: Arial, Helvetica, sans-serif;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.themeBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  user-select: none;
+}
+
+.themeBtn:hover {
+  filter: brightness(0.98);
+}
+
+.themeBtn:active {
+  transform: translateY(1px);
+}
+
+.themeBtn__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.themeBtn__text {
+  font-size: 14px;
+}
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar__inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+}
+
+.topbar__brand {
+  font-weight: 900;
+  letter-spacing: 0.2px;
+}
+
+.topbar__right {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+}
+.chat-input::placeholder {
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.chat-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.chat-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+.chat-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+.chat-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
