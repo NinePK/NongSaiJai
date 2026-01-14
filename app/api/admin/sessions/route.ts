@@ -15,20 +15,19 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await sb
       .from("v_ai_session_admin")
-      .select(
-        `
-        session_id,
-        proj_code,
-        effective_status,
-        effective_primary_category,
-        ai_status,
-        ai_primary_category,
-        has_override,
-        overridden_at,
-        last_message_at,
-        last_message_snippet
-      `
-      )
+      .select(`
+  session_id,
+  proj_code,
+  effective_status,
+  effective_primary_category,
+  ai_status,
+  ai_primary_category,
+  has_override,
+  overridden_at,
+  last_message_at,
+  last_message_snippet,
+  ai_summary
+`)
       .order("last_message_at", { ascending: false, nullsFirst: false })
       .limit(limit);
 

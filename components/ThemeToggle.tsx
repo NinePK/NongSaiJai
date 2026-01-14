@@ -58,14 +58,29 @@ export default function ThemeToggle() {
 
     setTheme(initial);
     document.documentElement.dataset.theme = initial;
+    if (initial === "dark") document.documentElement.classList.add("dark");
+else document.documentElement.classList.remove("dark");
+document.documentElement.style.colorScheme = initial;
+
   }, []);
 
-  function toggle() {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    document.documentElement.dataset.theme = next;
-    localStorage.setItem("theme", next);
-  }
+function toggle() {
+  const next = theme === "dark" ? "light" : "dark";
+  setTheme(next);
+
+  // ✅ keep your existing theme mechanism
+  document.documentElement.dataset.theme = next;
+
+  // ✅ enable shadcn/tailwind dark styles
+  if (next === "dark") document.documentElement.classList.add("dark");
+  else document.documentElement.classList.remove("dark");
+
+  // ✅ native color scheme
+  document.documentElement.style.colorScheme = next;
+
+  localStorage.setItem("theme", next);
+}
+
 
   // ป้องกัน hydration แปลก ๆ: ตอนยังไม่ mounted ให้ render placeholder
   if (!mounted) {

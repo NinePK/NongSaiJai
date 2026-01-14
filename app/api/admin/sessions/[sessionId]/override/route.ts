@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabasePublicServer } from "@/lib/supabasePublicServer";
 
-const ALLOWED_STATUS = new Set(["RISK", "CONCERN", "NON_RISK"]);
+// ✅ เพิ่ม ISSUE
+const ALLOWED_STATUS = new Set(["ISSUE", "RISK", "CONCERN", "NON_RISK"]);
 const ALLOWED_CAT = new Set(["People", "Process", "Quality", "Scope", "Financial"]);
 
 // เดโม: ใช้ uuid คงที่ให้ผ่าน NOT NULL (เปลี่ยนได้ภายหลัง)
@@ -16,6 +17,7 @@ export async function POST(
 
     const form = await req.formData();
     const status = String(form.get("status") ?? "").trim();
+
     const primaryCategoryRaw = form.get("primary_category");
     const notesRaw = form.get("notes");
 
@@ -33,10 +35,16 @@ export async function POST(
       return NextResponse.json({ error: "sessionId missing" }, { status: 400 });
     }
     if (!ALLOWED_STATUS.has(status)) {
-      return NextResponse.json({ error: "invalid status" }, { status: 400 });
+      return NextResponse.json(
+        { error: "invalid status", allowed: Array.from(ALLOWED_STATUS) },
+        { status: 400 }
+      );
     }
     if (override_primary_category && !ALLOWED_CAT.has(override_primary_category)) {
-      return NextResponse.json({ error: "invalid primary_category" }, { status: 400 });
+      return NextResponse.json(
+        { error: "invalid primary_category", allowed: Array.from(ALLOWED_CAT) },
+        { status: 400 }
+      );
     }
 
     const sb = supabasePublicServer();

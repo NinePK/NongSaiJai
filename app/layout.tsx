@@ -11,7 +11,13 @@ const themeInitScript = `
   try {
     var saved = localStorage.getItem("theme");
     var theme = saved || "dark";
+
     document.documentElement.dataset.theme = theme;
+
+    if (theme === "dark") document.documentElement.classList.add("dark");
+    else document.documentElement.classList.remove("dark");
+
+    document.documentElement.style.colorScheme = theme;
   } catch (e) {}
 })();
 `;
@@ -23,18 +29,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>
-        <div className="topbar">
+        <header className="topbar" role="banner">
           <div className="topbar__inner">
-            <div className="topbar__brand">Nong Sai Jai</div>
+            <div className="topbar__left">
+              <div className="topbar__brand">Nong Sai Jai</div>
+            </div>
 
-            {/* push right */}
             <div className="topbar__right">
+              <a href="#" className="topbar__action" aria-label="Re-login">
+                Re-login
+              </a>
               <ThemeToggle />
             </div>
           </div>
-        </div>
+        </header>
 
-        <div className="appShell">{children}</div>
+        <main className="appShell">{children}</main>
       </body>
     </html>
   );
