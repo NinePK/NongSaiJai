@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabasePublicServer } from "@/lib/supabasePublicServer";
+import { pool } from "@/lib/db";
 
 // ✅ เพิ่ม ISSUE
 const ALLOWED_STATUS = new Set(["ISSUE", "RISK", "CONCERN", "NON_RISK"]);
@@ -47,26 +47,37 @@ export async function POST(
       );
     }
 
-    const sb = supabasePublicServer();
+    // ✅ UPSERT ลงตาราง ai_admin_overrides
+    const q = `
+      insert into public.ai_admin_overrides (
+        session_id,
+        override_status,
+        override_primary_category,
+        override_notes,
+        overridden_by,
+        overridden_at,
+        is_active
+      )
+      values ($1,$2,$3,$4,$5,$6,$7)
+      on conflict (session_id)
+      do update set
+        override_status = excluded.override_status,
+        override_primary_category = excluded.override_primary_category,
+        override_notes = excluded.override_notes,
+        overridden_by = excluded.overridden_by,
+        overridden_at = excluded.overridden_at,
+        is_active = excluded.is_active
+    `;
 
-    const { error } = await sb
-      .from("ai_admin_overrides")
-      .upsert(
-        {
-          session_id: sessionId,
-          override_status: status,
-          override_primary_category,
-          override_notes,
-          overridden_by: DEMO_OVERRIDDEN_BY,
-          overridden_at: new Date().toISOString(),
-          is_active: true,
-        },
-        { onConflict: "session_id" }
-      );
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    await pool.query(q, [
+      sessionId,
+      status,
+      override_primary_category,
+      override_notes,
+      DEMO_OVERRIDDEN_BY,
+      new Date().toISOString(),
+      true,
+    ]);
 
     const origin = req.nextUrl.origin;
     return NextResponse.redirect(`${origin}/admin/sessions/${sessionId}`, { status: 303 });

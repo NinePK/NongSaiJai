@@ -1,34 +1,32 @@
+// app/api/mpsmart/lookups/route.ts
 import { NextResponse } from "next/server";
-import { supabasePublicServer } from "@/lib/supabasePublicServer";
+import { pool } from "@/lib/db";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const gname = searchParams.get("gname");
 
   if (!gname) {
-    return NextResponse.json(
-      { error: "gname is required" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "gname is required" }, { status: 400 });
   }
 
-  const supabase = supabasePublicServer();
+  try {
+    const { rows } = await pool.query(
+      `
+      select id, code, value, description
+      from public.mpsmart_lookups
+      where gname = $1
+        and is_active = true
+      order by display_order asc
+      `,
+      [gname]
+    );
 
-  const { data, error } = await supabase
-    .from("mpsmart_lookups")
-    .select("id, value, description")
-    .eq("gname", gname)
-    .eq("is_active", true)
-    .order("display_order", { ascending: true });
-
-  if (error) {
+    return NextResponse.json({ items: rows ?? [] });
+  } catch (e: any) {
     return NextResponse.json(
-      { error: error.message },
+      { error: e?.message ?? "DB error" },
       { status: 500 }
     );
   }
-
-  return NextResponse.json({
-    items: data ?? [],
-  });
 }

@@ -1,0 +1,39 @@
+/* app/admin/sessions/[sessionId]/IssueLogModal.module.css */
+
+@import "./RiskLogModal.module.css";
+
+/* เพิ่มเฉพาะที่ ISSUE ต้องใช้ */
+.rowInline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+.iconBtn {
+  width: 38px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(248, 113, 113, 0.55);
+  background: rgba(248, 113, 113, 0.08);
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.toggleWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  font-weight: 850;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.hrSoft {
+  margin-top: 12px;
+  border-top: 1px dashed rgba(148, 163, 184, 0.22);
+}

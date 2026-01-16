@@ -1,16 +1,13 @@
 // app/api/admin/export/executive/route.ts
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
-import { createClient } from "@supabase/supabase-js";
+import { pool } from "@/lib/db";
 
 /**
  * Executive-friendly export:
  * - No session_id / uuid / user_id
  * - Uses v_ai_session_admin (effective_* already computed)
  * - Risk level computed from ai_risk_scores (1–5 scale)
- *   maxScore = 5  -> "สูง"
- *   maxScore = 3-4-> "กลาง"
- *   maxScore = 1-2-> "ต่ำ"
  */
 
 type RiskLevel = "สูง" | "กลาง" | "ต่ำ";
@@ -19,6 +16,7 @@ type ExecStatus = "ปกติ" | "ควรติดตาม" | "มีคว
 function toExecStatus(s?: string | null): ExecStatus {
   if (s === "RISK") return "มีความเสี่ยง";
   if (s === "CONCERN") return "ควรติดตาม";
+  if (s === "ISSUE") return "มีความเสี่ยง"; // ✅ ถ้าคุณอยากให้ ISSUE เข้ากลุ่มเสี่ยงสำหรับผู้บริหาร
   return "ปกติ";
 }
 
@@ -38,8 +36,6 @@ function fmtDateTH(v?: string | null): string {
 }
 
 function safeMaxRiskScore(riskScores: any): number {
-  // riskScores expected shape:
-  // { risk_scope: {score:1-5, text}, risk_people: {...}, ... }
   if (!riskScores || typeof riskScores !== "object") return 0;
   const scores = Object.values(riskScores).map((v: any) => {
     const n = Number(v?.score ?? 0);
@@ -53,35 +49,37 @@ export async function GET(req: Request) {
   const q = (url.searchParams.get("q") ?? "").trim();
   const status = (url.searchParams.get("status") ?? "").trim();
 
-  // Use ANON key (you verified it can read the view)
-  const supabase = createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_ANON_KEY!
-  );
+  // Build SQL filters (safe param binding)
+  const where: string[] = [];
+  const params: any[] = [];
+  let i = 1;
 
-  let query = supabase
-    .from("v_ai_session_admin")
-    .select(
-      [
-        "proj_code",
-        "effective_status",
-        "effective_primary_category",
-        "ai_summary",
-        "ai_risk_scores",
-        "has_override",
-        "override_notes",
-        "ai_updated_at",
-      ].join(",")
-    );
-
-  // Filter behavior matches your admin list
-  if (q) query = query.ilike("proj_code", `%${q}%`);
-  if (status) query = query.eq("effective_status", status);
-
-  const { data, error } = await query;
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (q) {
+    where.push(`proj_code ilike $${i}`);
+    params.push(`%${q}%`);
+    i++;
   }
+  if (status) {
+    where.push(`effective_status = $${i}`);
+    params.push(status);
+    i++;
+  }
+
+  const sql = `
+    select
+      proj_code,
+      effective_status,
+      effective_primary_category,
+      ai_summary,
+      ai_risk_scores,
+      has_override,
+      override_notes,
+      ai_updated_at
+    from public.v_ai_session_admin
+    ${where.length ? `where ${where.join(" and ")}` : ""}
+  `;
+
+  const { rows: data } = await pool.query(sql, params);
 
   // Build executive rows
   const rows = (data ?? []).map((r: any) => {
@@ -97,7 +95,7 @@ export async function GET(req: Request) {
     };
   });
 
-  // Sort: High -> Medium -> Low (executive-first)
+  // Sort: High -> Medium -> Low
   const rank: Record<RiskLevel, number> = { สูง: 3, กลาง: 2, ต่ำ: 1 };
   rows.sort((a, b) => (rank[b.level] ?? 0) - (rank[a.level] ?? 0));
 
@@ -128,11 +126,10 @@ export async function GET(req: Request) {
     to: { row: 1, column: ws.columns.length },
   };
 
-  // Wrap text for long summaries/notes
+  // Wrap text
   ws.getColumn("summary").alignment = { wrapText: true, vertical: "top" };
   ws.getColumn("admin_note").alignment = { wrapText: true, vertical: "top" };
 
-  // Output
   const buffer = await wb.xlsx.writeBuffer();
 
   return new NextResponse(buffer, {

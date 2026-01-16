@@ -1,23 +1,37 @@
+// app/api/admin/sessions/[sessionId]/audit/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabasePublicServer } from "../../../../../../lib/supabasePublicServer";
+import { pool } from "@/lib/db";
 
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ sessionId: string }> }) {
+export async function GET(
+  _req: NextRequest,
+  ctx: { params: Promise<{ sessionId: string }> }
+) {
   try {
     const { sessionId } = await ctx.params;
 
-    const sb = supabasePublicServer();
+    const { rows } = await pool.query(
+      `
+      select
+        id,
+        session_id,
+        action,
+        before,
+        after,
+        reason,
+        actor_user_id,
+        created_at
+      from public.ai_admin_audit_logs
+      where session_id = $1
+      order by created_at desc
+      `,
+      [sessionId]
+    );
 
-    const { data, error } = await sb
-      .from("ai_admin_audit_logs")
-      .select("id, session_id, action, before, after, reason, actor_user_id, created_at")
-      .eq("session_id", sessionId)
-      .order("created_at", { ascending: false })
-      .limit(200);
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    return NextResponse.json({ items: data ?? [] });
+    return NextResponse.json({ items: rows ?? [] });
   } catch (err: any) {
-    return NextResponse.json({ error: err?.message ?? "Unknown error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message ?? "Unknown error" },
+      { status: 500 }
+    );
   }
 }

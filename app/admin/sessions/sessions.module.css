@@ -1,0 +1,172 @@
+/* Table typography */
+.table { font-size: 15px; }
+.th {
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+}
+.td {
+  font-size: 15px;
+  line-height: 1.45;
+  vertical-align: top;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+/* column sizing */
+.colNo { width: 72px; }
+.colStatus { width: 380px; }
+.colMore { width: 56px; }
+
+.noCell { font-variant-numeric: tabular-nums; font-weight: 900; color: var(--foreground); }
+
+.tr { cursor: pointer; }
+.tr:hover { background: color-mix(in oklab, var(--muted) 25%, transparent); }
+
+/* Status row */
+.statusCell { padding-right: 10px; }
+.statusTopRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.subline { margin-top: 6px; font-size: 13px; opacity: 0.7; font-weight: 700; }
+
+/* Unopened 🟦 */
+.unopenedDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: #2563eb;
+  box-shadow: 0 0 0 2px color-mix(in oklab, #2563eb 25%, transparent);
+}
+.unopened { color: #2563eb; }
+
+/* Status icon colors */
+.statusIconWrap { display: inline-flex; }
+.statusIcon { width: 18px; height: 18px; }
+
+/* ISSUE: เลือดหมู */
+.issue { color: #7f1d1d; }
+/* RISK: แดงฉูดฉาด */
+.risk { color: #dc2626; }
+/* CONCERN: เหลืองอำพัน */
+.concern { color: #f59e0b; }
+/* NON_RISK */
+.nonrisk { color: #16a34a; }
+
+/* Category pill */
+.categoryPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--border) 100%, transparent);
+  background: color-mix(in oklab, var(--card) 92%, transparent);
+  font-weight: 900;
+  font-size: 14px;
+}
+
+/* Sent / Not sent */
+.sent { color: #16a34a; }
+.sentPill,
+.notSentPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--border) 100%, transparent);
+  font-weight: 900;
+  font-size: 14px;
+}
+.sentPill { background: color-mix(in oklab, #16a34a 12%, transparent); }
+.notSentPill { background: color-mix(in oklab, #f59e0b 14%, transparent); }
+
+/* Summary wrap */
+.summaryCell { padding-right: 12px; }
+.summaryWrap {
+  white-space: pre-wrap;     /* ✅ wrap */
+  word-break: break-word;
+  overflow: hidden;
+
+  /* ✅ จำกัดความสูงแบบอ่านง่าย (เหมือน “wrapper”) */
+  display: -webkit-box;
+  -webkit-line-clamp: 4;     /* 4 บรรทัด */
+  -webkit-box-orient: vertical;
+
+  font-size: 15px;
+  font-weight: 650;
+}
+
+/* More */
+.moreCell { text-align: right; }
+
+/* Legend button */
+.legendButton {
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  opacity: 0.9;
+}
+
+/* macOS-ish dialog */
+.dialogBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0,0,0,0.35);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+.dialogPanel {
+  width: min(620px, 100%);
+  border-radius: 18px;
+  border: 1px solid color-mix(in oklab, var(--border) 100%, transparent);
+  background: color-mix(in oklab, var(--card) 90%, transparent);
+  box-shadow: 0 30px 80px rgba(0,0,0,0.25);
+  overflow: hidden;
+}
+.dialogHeader {
+  display: flex;
+  align-items: center;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+}
+.dialogTitle { font-weight: 950; letter-spacing: 0.2px; }
+.dialogClose {
+  margin-left: auto;
+  width: 34px; height: 34px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--border) 100%, transparent);
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.dialogClose:hover { background: color-mix(in oklab, var(--muted) 22%, transparent); }
+
+.dialogBody { padding: 14px; }
+.legendGrid { display: grid; gap: 10px; }
+.legendRow {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in oklab, var(--border) 100%, transparent);
+  background: color-mix(in oklab, var(--card) 96%, transparent);
+}
+.legendIconWrap { display: grid; place-items: center; }
+.legendName { font-weight: 950; }
+.legendDesc { opacity: 0.75; font-weight: 650; font-size: 13px; margin-top: 2px; }
+
+.dialogFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+}

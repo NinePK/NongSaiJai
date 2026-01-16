@@ -1,26 +1,41 @@
+// app/api/admin/sessions/[sessionId]/messages/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabasePublicServer } from "../../../../../../lib/supabasePublicServer";
+import { pool } from "@/lib/db";
 
-export async function GET(req: NextRequest, ctx: { params: Promise<{ sessionId: string }> }) {
+export async function GET(
+  req: NextRequest,
+  ctx: { params: Promise<{ sessionId: string }> }
+) {
   try {
     const { sessionId } = await ctx.params;
 
     const { searchParams } = new URL(req.url);
-    const limit = Math.min(parseInt(searchParams.get("limit") ?? "200", 10) || 200, 500);
+    const limit = Math.min(
+      parseInt(searchParams.get("limit") ?? "200", 10) || 200,
+      500
+    );
 
-    const sb = supabasePublicServer();
+    const { rows } = await pool.query(
+      `
+      select
+        id,
+        session_id,
+        sender,
+        message_text,
+        timestamp
+      from public.ai_chat_messages
+      where session_id = $1
+      order by timestamp asc
+      limit $2
+      `,
+      [sessionId, limit]
+    );
 
-    const { data, error } = await sb
-      .from("ai_chat_messages")
-      .select("id, session_id, sender, message_text, timestamp")
-      .eq("session_id", sessionId)
-      .order("timestamp", { ascending: true })
-      .limit(limit);
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    return NextResponse.json({ items: data ?? [] });
+    return NextResponse.json({ items: rows ?? [] });
   } catch (err: any) {
-    return NextResponse.json({ error: err?.message ?? "Unknown error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message ?? "Unknown error" },
+      { status: 500 }
+    );
   }
 }

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { OverrideButtons } from "./OverrideButtons";
-
+import { pool } from "@/lib/db";
 type Session = any;
 type Message = {
   id: string;
@@ -206,7 +206,17 @@ const MessageBubble = ({ message }: { message: Message }) => {
     </div>
   );
 };
-
+async function markAdminOpened(sessionId: string) {
+  await pool.query(
+    `
+    update public.ai_chat_sessions
+    set is_admin_opened = true
+    where id = $1::uuid
+      and is_admin_opened = false
+    `,
+    [sessionId]
+  );
+}
 // ===== Main Page =====
 export default async function AdminSessionDetailPage({
   params,
@@ -214,6 +224,10 @@ export default async function AdminSessionDetailPage({
   params: Promise<{ sessionId: string }>;
 }) {
   const { sessionId } = await params;
+
+  // ✅ ทำก่อน เพื่อให้กลับไปหน้า list แล้วเห็น 🟦 หาย (เมื่อ refresh/รีเฟตช์)
+  await markAdminOpened(sessionId);
+
   const [session, messages] = await Promise.all([
     fetchSession(sessionId),
     fetchMessages(sessionId),
@@ -280,9 +294,9 @@ export default async function AdminSessionDetailPage({
             title="Manual Override"
             right={
               session?.has_override ? (
-                <Pill text="Override ACTIVE" tone="yellow" />
+                <Pill text="มีการตรวจจาก Admin แล้ว" tone="yellow" />
               ) : (
-                <Pill text="AI-only" tone="gray" />
+                <Pill text="เป็นการประเมินของ AI" tone="gray" />
               )
             }
           >

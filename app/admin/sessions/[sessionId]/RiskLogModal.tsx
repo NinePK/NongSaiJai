@@ -4,7 +4,8 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import styles from "./RiskLogModal.module.css";
 
-type LookupItem = { id: number; value: string; description: string | null };
+// ✅ เพิ่ม code
+type LookupItem = { id: number; code: number; value: string; description: string | null };
 
 function dateToYMD(d: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -15,6 +16,7 @@ type Props = {
   open: boolean;
   onClose: () => void;
   projectCode: string;
+  sessionId: string;   
   aiTitle: string;
   aiSummary: string;
   onSaved?: () => void;
@@ -23,6 +25,7 @@ type Props = {
 export function RiskLogModal({
   open,
   onClose,
+  sessionId,
   projectCode,
   aiTitle,
   aiSummary,
@@ -44,12 +47,10 @@ export function RiskLogModal({
 
     if (open) {
       setShow(true);
-      // ให้มีเฟรมหนึ่งก่อนค่อยเปิด เพื่อให้ transition ทำงานชัวร์
       requestAnimationFrame(() => setAnimOpen(true));
       return;
     }
 
-    // open=false -> เล่น close animation ก่อน แล้วค่อย unmount
     setAnimOpen(false);
     const t = window.setTimeout(() => setShow(false), CLOSE_MS);
     return () => window.clearTimeout(t);
@@ -89,7 +90,8 @@ export function RiskLogModal({
   }, [show]);
 
   // ---- Form state ----
-  const [riskCategoryId, setRiskCategoryId] = React.useState<number | "">("");
+  // ✅ เปลี่ยนจาก id -> code
+  const [riskCategoryCode, setRiskCategoryCode] = React.useState<number | "">("");
   const [registeredDate] = React.useState<string>(dateToYMD(new Date()));
 
   const [riskTitle, setRiskTitle] = React.useState<string>(aiTitle ?? "");
@@ -102,7 +104,6 @@ export function RiskLogModal({
   const [workstream, setWorkstream] = React.useState<string>("");
   const [statusOpen, setStatusOpen] = React.useState<boolean>(true);
   const [escalatePMO, setEscalatePMO] = React.useState<boolean>(false);
-
 
   const [riskOwnerId, setRiskOwnerId] = React.useState<number>(1);
   const [registeredById, setRegisteredById] = React.useState<number>(1);
@@ -119,59 +120,77 @@ export function RiskLogModal({
     setRiskDesc(aiSummary ?? "");
   }, [show, aiTitle, aiSummary]);
 
-
   React.useEffect(() => {
     setStatusId(statusOpen ? 1 : 2);
   }, [statusOpen]);
 
   const score = likelihood * impact;
 
+function getUserCodeFromLocalStorage(): string | null {
+  try {
+    const v = window.localStorage.getItem("user_code");
+    const s = (v ?? "").trim();
+    return s.length ? s : null;
+  } catch {
+    return null;
+  }
+}
+
   async function onSave() {
     if (!projectCode) return alert("project_code is missing (session has no proj_code)");
-    if (!riskCategoryId) return alert("Please select Risk Category");
+    if (!riskCategoryCode) return alert("Please select Risk Category");
     if (!targetDate) return alert("Please select Target Date");
-
+    if (!sessionId) return alert("session_id is missing");
     const now = new Date();
     const openISO = now.toISOString();
     const registeredISO = new Date(`${registeredDate}T00:00:00`).toISOString();
     const targetISO = new Date(`${targetDate}T00:00:00`).toISOString();
 
-    const payload = {
-      project_code: projectCode,
+    const userCode = getUserCodeFromLocalStorage();
 
-      risk_title: riskTitle,
-      risk_description: riskDesc || null,
-      impact_description: impactDesc || null,
+const payload = {
+  session_id: sessionId,
+  project_code: projectCode,
 
-      risk_owner_id: Number(riskOwnerId),
-      registered_by_id: Number(registeredById),
+  risk_title: riskTitle,
+  risk_description: riskDesc || null,
+  impact_description: impactDesc || null,
 
-      workstream: workstream || null,
-      migration_strategy: null,
+  risk_owner_id: Number(riskOwnerId),
+  registered_by_id: Number(registeredById),
 
-      target_closure_date: targetISO,
-      open_date: openISO,
-      closed_date: null,
+  workstream: workstream || null,
+  migration_strategy: null,
 
-      remark: remark || null,
+  target_closure_date: targetISO,
+  open_date: openISO,
+  closed_date: null,
 
-      risk_category_id: Number(riskCategoryId),
-      likelihood_level_id: Number(likelihood), 
-      impact_level_id: Number(impact), 
+  remark: remark || null,
 
-      status_id: Number(statusId),
-      registered_at: registeredISO,
+  // ✅ ส่งเป็น code แทน id
+  risk_category_code: Number(riskCategoryCode),
 
-      risk_owner_from_table: "mpsmart_people",
-      registered_by_from_table: "mpsmart_people",
+  likelihood_level_id: Number(likelihood),
+  impact_level_id: Number(impact),
 
-      notify_enabled: true,
-      is_escalate_to_pmo: Boolean(escalatePMO),
-      is_escalate_to_management: false,
+  status_id: Number(statusId),
+  registered_at: registeredISO,
 
-      from_app: "NongSaiJai",
-    };
+  // ✅ บังคับให้ส่ง risk_teams เท่านั้น
+  risk_owner_from_table: "risk_teams",
+  registered_by_from_table: "risk_teams",
 
+  // ✅ ใส่ user_code จาก localStorage (ถ้ายังไม่มีจะเป็น null)
+  risk_owner_user_code: userCode,
+  registered_by_user_code: userCode,
+
+  notify_enabled: true,
+  is_escalate_to_pmo: Boolean(escalatePMO),
+  is_escalate_to_management: false,
+
+  from_app: "NongSaiJai",
+};
     setSaving(true);
     try {
       const res = await fetch(`/api/mpsmart/risk-logs`, {
@@ -246,19 +265,22 @@ export function RiskLogModal({
               <div className={styles.label}>
                 Category <span className={styles.req}>*</span>
               </div>
+
+              {/* ✅ เปลี่ยน select ให้ใช้ code */}
               <select
                 className={styles.select}
-                value={riskCategoryId}
+                value={riskCategoryCode}
                 onChange={(e) =>
-                  setRiskCategoryId(e.target.value ? Number(e.target.value) : "")
+                  setRiskCategoryCode(e.target.value ? Number(e.target.value) : "")
                 }
                 disabled={loadingLookups}
               >
                 <option value="">
                   {loadingLookups ? "Loading..." : "-- Select --"}
                 </option>
+
                 {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
+                  <option key={c.code} value={c.code}>
                     {c.value}
                   </option>
                 ))}
@@ -377,6 +399,7 @@ export function RiskLogModal({
               />
             </div>
           </div>
+
           <div className={styles.section}>
             <div className={styles.sectionTitle}>
               <span>Operational</span>
@@ -427,6 +450,7 @@ export function RiskLogModal({
                 rows={4}
               />
             </div>
+
             <div style={{ display: "none" }}>
               <input
                 value={riskOwnerId}
@@ -443,6 +467,7 @@ export function RiskLogModal({
             </div>
           </div>
         </div>
+
         <div className={styles.footer}>
           <button
             type="button"
