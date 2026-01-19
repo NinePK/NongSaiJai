@@ -3,21 +3,49 @@
 import React from "react";
 import Link from "next/link";
 import {
-  BarChart3,
   Download,
   MoreHorizontal,
   Send,
-  ShieldAlert,
-  ShieldCheck,
+
+  // Status (ถ้าคุณแก้ตามที่คุยไว้ก่อนหน้า)
+  AlertTriangle,
+  AlertCircle,
+  HelpCircle,
+  CheckCircle2,
+
+  // Category
+  Users,
+  Workflow,
+  BadgeCheck,
+  Target,
+  CircleDollarSign,
+
+  // อื่นๆ
   ShieldQuestion,
-  Sparkles,
-  User,
 } from "lucide-react";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 import styles from "./sessions.module.css";
 
@@ -46,19 +74,35 @@ export type SessionRow = {
 };
 
 const statusConfig = {
-  ISSUE: { cls: styles.issue, Icon: ShieldAlert, label: "ปัญหาที่เกิดขึ้นแล้ว (Alert)" },
-  RISK: { cls: styles.risk, Icon: ShieldAlert, label: "เสี่ยงจะเกิดปัญหา (Warning)" },
-  CONCERN: { cls: styles.concern, Icon: ShieldQuestion, label: "ควรตรวจสอบ (Check)" },
-  NON_RISK: { cls: styles.nonrisk, Icon: ShieldCheck, label: "ไม่มีความเสี่ยง (Safe)" },
+  ISSUE: {
+    cls: styles.issue,
+    Icon: AlertTriangle,
+    label: "ปัญหาที่เกิดขึ้นแล้ว (Issue)",
+  },
+  RISK: {
+    cls: styles.risk,
+    Icon: AlertCircle,
+    label: "เสี่ยงจะเกิดปัญหา (Risk)",
+  },
+  CONCERN: {
+    cls: styles.concern,
+    Icon: HelpCircle,
+    label: "ควรตรวจสอบ / ติดตาม (Concern)",
+  },
+  NON_RISK: {
+    cls: styles.nonrisk,
+    Icon: CheckCircle2,
+    label: "ไม่มีความเสี่ยง (Non-risk)",
+  },
 } as const;
 
 const categoryIcons: Record<string, any> = {
-  People: User,
-  Financial: BarChart3,
-  Process: Sparkles,
-  Quality: ShieldCheck,
-  Scope: ShieldQuestion,
-  Unknown: ShieldQuestion,
+  People: Users, // คน/ทีม
+  Process: Workflow, // ขั้นตอน/กระบวนการ
+  Quality: BadgeCheck, // คุณภาพ/มาตรฐาน
+  Financial: CircleDollarSign, // เงิน/งบประมาณ
+  Scope: Target, // ขอบเขต/เป้าหมาย
+  Unknown: HelpCircle, // ไม่ระบุ
 };
 
 function fmtTS(v?: string | null) {
@@ -100,7 +144,9 @@ function SessionRowItem({
 
   return (
     <TableRow className={styles.tr} onClick={() => onOpenSession(s.session_id)}>
-      <TableCell className={`${styles.td} ${styles.noCell}`}>{idx + 1}</TableCell>
+      <TableCell className={`${styles.td} ${styles.noCell}`}>
+        {idx + 1}
+      </TableCell>
 
       <TableCell className={`${styles.td} ${styles.statusCell}`}>
         <div className={styles.statusTopRow}>
@@ -112,17 +158,24 @@ function SessionRowItem({
             />
           )}
 
-          <span className={styles.statusIconWrap} title={`${status} — ${cfg.label}`} aria-label={status}>
+          <span
+            className={styles.statusIconWrap}
+            title={`${status} — ${cfg.label}`}
+            aria-label={status}
+          >
             <StatusIcon className={`${styles.statusIcon} ${cfg.cls}`} />
           </span>
 
           <span className={styles.categoryPill} title={`Category: ${category}`}>
-            <CatIcon className="h-4 w-4" />
+            <CatIcon className="h-5 w-5" />
             <span>{category}</span>
           </span>
 
           {s.is_sent_to_mpsmart ? (
-            <span className={styles.sentPill} title={`Sent to MPsmart at ${fmtTS(s.mpsmart_sent_at)}`}>
+            <span
+              className={styles.sentPill}
+              title={`Sent to MPsmart at ${fmtTS(s.mpsmart_sent_at)}`}
+            >
               <Send className="h-4 w-4" />
               <span>Sent</span>
             </span>
@@ -141,10 +194,17 @@ function SessionRowItem({
         <div className={styles.summaryWrap}>{getSummary(s)}</div>
       </TableCell>
 
-      <TableCell className={`${styles.td} ${styles.moreCell}`} onClick={(e) => e.stopPropagation()}>
+      <TableCell
+        className={`${styles.td} ${styles.moreCell}`}
+        onClick={(e) => e.stopPropagation()}
+      >
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="rounded-full opacity-60 hover:opacity-100">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-full opacity-60 hover:opacity-100"
+            >
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
@@ -179,10 +239,16 @@ export function SessionsTable({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <CardTitle className="text-base font-black">Sessions</CardTitle>
-            <CardDescription className="text-xs">คลิกที่แถวเพื่อเปิดรายละเอียด</CardDescription>
+            <CardDescription className="text-xs">
+              คลิกที่แถวเพื่อเปิดรายละเอียด
+            </CardDescription>
           </div>
 
-          <Button asChild className="gap-2" style={{ backgroundColor: brandBlue1 }}>
+          <Button
+            asChild
+            className="gap-2"
+            style={{ backgroundColor: brandBlue1 }}
+          >
             <a href={exportHref}>
               <Download className="h-4 w-4" />
               Export Excel
@@ -196,7 +262,9 @@ export function SessionsTable({
           <Table className={styles.table}>
             <TableHeader>
               <TableRow>
-                <TableHead className={`${styles.th} ${styles.colNo}`}>No.</TableHead>
+                <TableHead className={`${styles.th} ${styles.colNo}`}>
+                  No.
+                </TableHead>
                 <TableHead className={`${styles.th} ${styles.colStatus}`}>
                   <button
                     type="button"
@@ -204,7 +272,7 @@ export function SessionsTable({
                     onClick={onOpenLegend}
                     title="คลิกเพื่อดูความหมายของสัญลักษณ์"
                   >
-                    Status (click for legend)
+                    Status (Click here for details)
                   </button>
                 </TableHead>
                 <TableHead className={styles.th}>AI Summary</TableHead>
@@ -214,7 +282,12 @@ export function SessionsTable({
 
             <TableBody>
               {rows.map((s, idx) => (
-                <SessionRowItem key={s.session_id} s={s} idx={idx} onOpenSession={onOpenSession} />
+                <SessionRowItem
+                  key={s.session_id}
+                  s={s}
+                  idx={idx}
+                  onOpenSession={onOpenSession}
+                />
               ))}
             </TableBody>
           </Table>

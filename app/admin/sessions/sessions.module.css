@@ -40,16 +40,26 @@
 
 /* Status icon colors */
 .statusIconWrap { display: inline-flex; }
-.statusIcon { width: 18px; height: 18px; }
+.statusIcon {
+  stroke-width: 2.2;
+}
 
-/* ISSUE: เลือดหมู */
-.issue { color: #7f1d1d; }
-/* RISK: แดงฉูดฉาด */
-.risk { color: #dc2626; }
-/* CONCERN: เหลืองอำพัน */
-.concern { color: #f59e0b; }
-/* NON_RISK */
-.nonrisk { color: #16a34a; }
+.issue {
+  color: #b91c1c; /* red-700 */
+}
+
+.risk {
+  color: #dc2626; /* red-600 */
+}
+
+.concern {
+  color: #d97706; /* amber-600 */
+}
+
+.nonrisk {
+  color: #15803d; /* green-700 */
+}
+
 
 /* Category pill */
 .categoryPill {

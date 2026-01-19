@@ -5,12 +5,15 @@ import * as React from "react";
 import styles from "./IssueLogModal.module.css";
 import { AddIssueComponentModal } from "./AddIssueComponentModal";
 import type { LookupItem, ProjectComponent } from "./issue-log.types";
+import { Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { createPortal } from "react-dom";
+import { SaveOverlay } from "./SaveOverlay";
 
 type ProjectPM = {
-  id: number;                 // ✅ pm_teams.id
-  user_code: string;          // ✅ master_employees.code (same as pm_code/user_code)
-  display_name?: string | null; // ✅ master_employees.name_en
-  role_title?: string | null;   // ✅ pm_teams.t_role_title
+  id: number;
+  user_code: string;
+  display_name?: string | null;
+  role_title?: string | null;
 };
 
 type RiskTeamUser = {
@@ -18,147 +21,176 @@ type RiskTeamUser = {
   display_name?: string | null;
 };
 
-function dateToYMD(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-function daysBetween(aYMD: string, bYMD: string) {
-  const a = new Date(`${aYMD}T00:00:00`);
-  const b = new Date(`${bYMD}T00:00:00`);
-  const ms = b.getTime() - a.getTime();
-  if (Number.isNaN(ms)) return 0;
-  return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)));
-}
-function toISODate(ymd: string) {
-  return new Date(`${ymd}T00:00:00`).toISOString();
-}
-
 type Props = {
   projectCode: string;
   sessionId: string;
   aiTitle: string;
   aiSummary: string;
-
   categories: LookupItem[];
   statuses: LookupItem[];
-  environments: LookupItem[]; // issue_logs_environment_type (1..4)
-  priorities: LookupItem[];   // issue_logs_priority_level (1..4)
-
+  environments: LookupItem[];
+  priorities: LookupItem[];
   components: ProjectComponent[];
   setComponents: React.Dispatch<React.SetStateAction<ProjectComponent[]>>;
-
   loadingLookups: boolean;
   loadingComponents: boolean;
-
   onClose: () => void;
   onSaved?: () => void;
 };
+
+const dateToYMD = (d: Date) => {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+const daysBetween = (aYMD: string, bYMD: string) => {
+  const a = new Date(`${aYMD}T00:00:00`);
+  const b = new Date(`${bYMD}T00:00:00`);
+  const ms = b.getTime() - a.getTime();
+  return Number.isNaN(ms) ? 0 : Math.max(0, Math.floor(ms / 86400000));
+};
+
+const toISODate = (ymd: string) => new Date(`${ymd}T00:00:00`).toISOString();
+
+const useFetch = <T,>(url: string | null, initialValue: T) => {
+  const [data, setData] = React.useState<T>(initialValue);
+  const [loading, setLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!url) return;
+    setLoading(true);
+    fetch(url, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => setData(Array.isArray(j?.items) ? j.items : initialValue))
+      .catch(() => setData(initialValue))
+      .finally(() => setLoading(false));
+  }, [url]);
+
+  return { data, loading };
+};
+
+const FormField = ({
+  label,
+  required,
+  children,
+  marginTop = true,
+}: {
+  label: string;
+  required?: boolean;
+  children: React.ReactNode;
+  marginTop?: boolean;
+}) => (
+  <div className={styles.field} style={marginTop ? {} : { marginTop: 0 }}>
+    <div className={styles.label}>
+      {label} {required && <span className={styles.req}>*</span>}
+    </div>
+    {children}
+  </div>
+);
+
+const SelectField = ({
+  label,
+  required,
+  value,
+  onChange,
+  options,
+  loading,
+  placeholder = "Select option",
+  marginTop,
+}: {
+  label: string;
+  required?: boolean;
+  value: number | "";
+  onChange: (val: number | "") => void;
+  options: { code: number | string; value: string }[];
+  loading?: boolean;
+  placeholder?: string;
+  marginTop?: boolean;
+}) => (
+  <FormField label={label} required={required} marginTop={marginTop}>
+    <select
+      className={styles.select}
+      value={value}
+      onChange={(e) => onChange(e.target.value ? Number(e.target.value) : "")}
+      disabled={loading}
+    >
+      <option value="">{loading ? "Loading..." : placeholder}</option>
+      {options.map((opt) => (
+        <option key={opt.code} value={opt.code}>
+          {opt.value}
+        </option>
+      ))}
+    </select>
+  </FormField>
+);
+
+const SectionHeader = ({ title, subtitle }: { title: string; subtitle: string }) => (
+  <div className={styles.sectionTitle}>
+    <span>{title}</span>
+    <span className={styles.muted}>{subtitle}</span>
+  </div>
+);
 
 export function IssueLogForm({
   projectCode,
   sessionId,
   aiTitle,
   aiSummary,
-
   categories,
   statuses,
   environments,
   priorities,
-
   components,
   setComponents,
-
   loadingLookups,
   loadingComponents,
-
   onClose,
   onSaved,
 }: Props) {
   const today = dateToYMD(new Date());
 
-  // -------------------------
-  // Assignee (PM of project) + Report By (risk_teams + localStorage username)
-  // -------------------------
-  const [pms, setPMs] = React.useState<ProjectPM[]>([]);
-  const [riskTeams, setRiskTeams] = React.useState<RiskTeamUser[]>([]);
-  const [loadingPMs, setLoadingPMs] = React.useState(false);
-  const [loadingRiskTeams, setLoadingRiskTeams] = React.useState(false);
+  const { data: pms, loading: loadingPMs } = useFetch<ProjectPM[]>(
+    projectCode ? `/api/mpsmart/project-pms?project_code=${encodeURIComponent(projectCode)}` : null,
+    []
+  );
 
-  const [localUsername, setLocalUsername] = React.useState<string>("");
+  const { data: riskTeams, loading: loadingRiskTeams } = useFetch<RiskTeamUser[]>(
+    projectCode ? `/api/mpsmart/risk-teams?project_code=${encodeURIComponent(projectCode)}` : null,
+    []
+  );
 
+  const [localUsername, setLocalUsername] = React.useState("");
   React.useEffect(() => {
     try {
-      const u = window.localStorage.getItem("username") || "";
-      setLocalUsername(u);
+      setLocalUsername(window.localStorage.getItem("username") || "");
     } catch {
       setLocalUsername("");
     }
   }, []);
 
-  React.useEffect(() => {
-    if (!projectCode) return;
-
-    // ✅ PMs (ต้องให้ API คืน id,user_code,display_name,role_title)
-    setLoadingPMs(true);
-    fetch(`/api/mpsmart/project-pms?project_code=${encodeURIComponent(projectCode)}`, {
-  cache: "no-store",
-})
-      .then((r) => r.json())
-      .then((j) => setPMs(Array.isArray(j?.items) ? j.items : []))
-      .catch(() => setPMs([]))
-      .finally(() => setLoadingPMs(false));
-
-    // ✅ risk_teams (Report By options)
-    setLoadingRiskTeams(true);
-    fetch(`/api/mpsmart/risk-teams?project_code=${encodeURIComponent(projectCode)}`, {
-      cache: "no-store",
-    })
-      .then((r) => r.json())
-      .then((j) => setRiskTeams(Array.isArray(j?.items) ? j.items : []))
-      .catch(() => setRiskTeams([]))
-      .finally(() => setLoadingRiskTeams(false));
-  }, [projectCode]);
-
-  // -------------------------
-  // form state
-  // -------------------------
   const [issueTitle, setIssueTitle] = React.useState(aiTitle ?? "");
   const [categoryCode, setCategoryCode] = React.useState<number | "">("");
   const [statusCode, setStatusCode] = React.useState<number | "">("");
   const [escalatePMO, setEscalatePMO] = React.useState(false);
-
   const [description, setDescription] = React.useState(aiSummary ?? "");
   const [impact, setImpact] = React.useState("");
-
   const [openDate, setOpenDate] = React.useState(today);
-
-  // ✅ เปลี่ยนจาก assigneeUserCode -> assigneeId (pm_teams.id)
   const [assigneeId, setAssigneeId] = React.useState<number | "">("");
-
-  const selectedPM = React.useMemo(() => {
-    if (!assigneeId) return null;
-    return pms.find((x) => x.id === assigneeId) ?? null;
-  }, [assigneeId, pms]);
-
-  const [reportedByUserCode, setReportedByUserCode] = React.useState<string>("");
+  const [reportedByUserCode, setReportedByUserCode] = React.useState("");
   const [reportDate, setReportDate] = React.useState(today);
-
-  // from lookups (numeric codes 1..4)
   const [environmentCode, setEnvironmentCode] = React.useState<number | "">("");
   const [priorityCode, setPriorityCode] = React.useState<number | "">("");
-
-  // Component (from project components table)
   const [componentId, setComponentId] = React.useState<number | "">("");
   const [targetDate, setTargetDate] = React.useState("");
   const [notifyEnabled, setNotifyEnabled] = React.useState(true);
-
   const [referCaseNo, setReferCaseNo] = React.useState("");
   const [rootCause, setRootCause] = React.useState("");
   const [resolution, setResolution] = React.useState("");
   const [resolutionDate, setResolutionDate] = React.useState("");
   const [remark, setRemark] = React.useState("");
-
   const [saving, setSaving] = React.useState(false);
+  const [saveState, setSaveState] = React.useState<"idle" | "saving" | "success" | "error">("idle");
+  const [saveMsg, setSaveMsg] = React.useState("");
   const [openAddComponent, setOpenAddComponent] = React.useState(false);
 
   React.useEffect(() => {
@@ -166,93 +198,81 @@ export function IssueLogForm({
     setDescription(aiSummary ?? "");
   }, [aiTitle, aiSummary]);
 
-  // ถ้าโหลด PM มาแล้วและยังไม่ได้เลือก ให้ auto-select คนแรก
   React.useEffect(() => {
-    if (assigneeId) return;
-    if (!pms || pms.length === 0) return;
-    // เลือกคนแรกเป็น default
-    setAssigneeId(pms[0].id);
+    if (!assigneeId && pms.length > 0) setAssigneeId(pms[0].id);
   }, [pms, assigneeId]);
+
+  const selectedPM = React.useMemo(
+    () => pms.find((x) => x.id === assigneeId) ?? null,
+    [assigneeId, pms]
+  );
 
   const agingDays = daysBetween(openDate, today);
 
-  async function onSubmit() {
-    if (!projectCode) return alert("project_code is missing (session has no proj_code)");
-    if (!sessionId) return alert("session_id is missing");
+  const showError = (msg: string) => {
+    setSaveMsg(msg);
+    setSaveState("error");
+    setTimeout(() => setSaveState("idle"), 1200);
+  };
 
-    if (!issueTitle.trim()) return alert("Please fill Issue title");
-    if (!categoryCode) return alert("Please select Category");
-    if (!statusCode) return alert("Please select Status");
-    if (!description.trim()) return alert("Please fill Description");
-    if (!impact.trim()) return alert("Please fill Impact");
-    if (!openDate) return alert("Please select Open Date");
-
-    if (!assigneeId || !selectedPM?.user_code) {
-      return alert("Please select Project Manager (Assignee)");
-    }
-
-    if (!reportedByUserCode) return alert("Please select Report By");
-    if (!reportDate) return alert("Please select Report Date");
-    if (!environmentCode) return alert("Please select Environment");
-    if (!priorityCode) return alert("Please select Priority Level");
-    if (!componentId) return alert("Please select Component");
-    if (!targetDate) return alert("Please select Target Date");
+  const onSubmit = async () => {
+    if (!projectCode) return showError("ไม่พบ project_code");
+    if (!sessionId) return showError("ไม่พบ session_id");
+    if (!issueTitle.trim()) return showError("กรุณากรอก Issue title");
+    if (!categoryCode) return showError("กรุณาเลือก Category");
+    if (!statusCode) return showError("กรุณาเลือก Status");
+    if (!description.trim()) return showError("กรุณากรอก Description");
+    if (!impact.trim()) return showError("กรุณากรอก Impact");
+    if (!openDate) return showError("กรุณาเลือก Open Date");
+    if (!assigneeId || !selectedPM?.user_code) return showError("กรุณาเลือก Project Manager");
+    if (!reportedByUserCode) return showError("กรุณาเลือก Report By");
+    if (!reportDate) return showError("กรุณาเลือก Report Date");
+    if (!environmentCode) return showError("กรุณาเลือก Environment");
+    if (!priorityCode) return showError("กรุณาเลือก Priority Level");
+    if (!componentId) return showError("กรุณาเลือก Component");
+    if (!targetDate) return showError("กรุณาเลือก Target Date");
 
     const reportedFrom =
-  reportedByUserCode === "risk_teams"
-    ? "risk_teams"
-    : localUsername && reportedByUserCode === localUsername
-    ? "localstorage"
-    : "risk_teams";
+      reportedByUserCode === "risk_teams"
+        ? "risk_teams"
+        : localUsername && reportedByUserCode === localUsername
+        ? "localstorage"
+        : "risk_teams";
 
-    // ✅ payload for mpsmart_issue_logs
     const payload = {
       session_id: sessionId,
       project_code: projectCode,
-
       issue_title: issueTitle.trim(),
       description: description.trim(),
       impact_description: impact.trim(),
-
       issue_category_id: Number(categoryCode),
       status_id: Number(statusCode),
       environment_type_id: Number(environmentCode),
       priority_level_id: Number(priorityCode),
-
       component_id: Number(componentId),
-
       open_date: toISODate(openDate),
       target_date: toISODate(targetDate),
       reported_at: toISODate(reportDate),
-
       notify_enabled: Boolean(notifyEnabled),
-
       is_escalate_to_pmo: Boolean(escalatePMO),
       is_escalate_to_management: false,
-
-      // ✅ Assignee: ส่งทั้ง id และ user_code
       assignee_id: Number(assigneeId),
       assignee_user_code: selectedPM.user_code,
       assignee_from_table: "pm_teams",
-
-     reported_by_user_code:
-  reportedByUserCode === "risk_teams"
-    ? null
-    : reportedByUserCode,
-reported_by_from_table: reportedFrom,
-
-
+      reported_by_user_code: reportedByUserCode === "risk_teams" ? null : reportedByUserCode,
+      reported_by_from_table: reportedFrom,
       refer_product_case_number: referCaseNo.trim() || null,
       root_cause: rootCause.trim() || null,
       resolution: resolution.trim() || null,
       resolution_date: resolutionDate ? toISODate(resolutionDate) : null,
       remark: remark.trim() || null,
-
       from_app: "NongSaiJai",
-      // created_by: localUsername || "admin",
     };
 
     setSaving(true);
+    setSaveState("saving");
+    setSaveMsg("");
+
     try {
       const res = await fetch(`/api/mpsmart/issues`, {
         method: "POST",
@@ -263,150 +283,111 @@ reported_by_from_table: reportedFrom,
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error || "Insert failed");
 
-      alert(`Saved issue id: ${j?.id ?? "-"}`);
+      setSaveState("success");
+      setSaveMsg("Saved");
       try {
         onSaved?.();
       } catch {}
-      onClose();
+
+      setTimeout(() => {
+        onClose();
+        setSaveState("idle");
+        setSaveMsg("");
+      }, 700);
     } catch (e: any) {
-      alert(e?.message ?? "Save error");
+      setSaveState("error");
+      setSaveMsg(e?.message ?? "เกิดข้อผิดพลาด");
+      setTimeout(() => setSaveState("idle"), 1400);
     } finally {
       setSaving(false);
     }
-  }
+  };
+
+  const overlayState: "saving" | "success" | "error" = saveState === "idle" ? "saving" : saveState;
 
   return (
     <>
+      {saveState !== "idle" &&
+        createPortal(
+          <SaveOverlay
+            open
+            state={overlayState}
+            title={
+              saveState === "saving"
+                ? "กำลังบันทึก Issue..."
+                : saveState === "success"
+                ? "บันทึก Issue สำเร็จ"
+                : "บันทึก Issue ไม่สำเร็จ"
+            }
+            message={
+              saveState === "saving"
+                ? "โปรดรอสักครู่"
+                : saveMsg || (saveState === "success" ? "ระบบได้บันทึกข้อมูลเรียบร้อยแล้ว" : "กรุณาลองใหม่อีกครั้ง")
+            }
+          />,
+          document.body
+        )}
+
       {/* Core */}
       <div className={styles.section}>
-        <div className={styles.sectionTitle}>
-          <span>Core details</span>
-          <span className={styles.muted}>
-            required <span className={styles.req}>*</span>
-          </span>
-        </div>
+        <SectionHeader title="Core details" subtitle="required *" />
 
-        <div className={styles.field}>
-          <div className={styles.label}>
-            Issue title <span className={styles.req}>*</span>
-          </div>
-          <input
-            className={styles.input}
-            value={issueTitle}
-            onChange={(e) => setIssueTitle(e.target.value)}
-          />
-        </div>
+        <FormField label="Issue title" required>
+          <input className={styles.input} value={issueTitle} onChange={(e) => setIssueTitle(e.target.value)} />
+        </FormField>
 
         <div className={styles.grid2}>
-          <div className={styles.field} style={{ marginTop: 0 }}>
-            <div className={styles.label}>
-              Category <span className={styles.req}>*</span>
-            </div>
-            <select
-              className={styles.select}
-              value={categoryCode}
-              onChange={(e) => setCategoryCode(e.target.value ? Number(e.target.value) : "")}
-              disabled={loadingLookups}
-            >
-              <option value="">{loadingLookups ? "Loading..." : "Select option"}</option>
-              {categories.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.value}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className={styles.field} style={{ marginTop: 0 }}>
-            <div className={styles.label}>
-              Status <span className={styles.req}>*</span>
-            </div>
-            <select
-              className={styles.select}
-              value={statusCode}
-              onChange={(e) => setStatusCode(e.target.value ? Number(e.target.value) : "")}
-              disabled={loadingLookups}
-            >
-              <option value="">{loadingLookups ? "Loading..." : "Select option"}</option>
-              {statuses.map((s) => (
-                <option key={s.code} value={s.code}>
-                  {s.value}
-                </option>
-              ))}
-            </select>
-          </div>
+          <SelectField
+            label="Category"
+            required
+            value={categoryCode}
+            onChange={setCategoryCode}
+            options={categories}
+            loading={loadingLookups}
+            marginTop={false}
+          />
+          <SelectField
+            label="Status"
+            required
+            value={statusCode}
+            onChange={setStatusCode}
+            options={statuses}
+            loading={loadingLookups}
+            marginTop={false}
+          />
         </div>
 
         <div className={styles.controlsRow}>
           <label className={styles.control} style={{ marginLeft: "auto" }}>
-            <input
-              type="checkbox"
-              checked={escalatePMO}
-              onChange={(e) => setEscalatePMO(e.target.checked)}
-            />
+            <input type="checkbox" checked={escalatePMO} onChange={(e) => setEscalatePMO(e.target.checked)} />
             Escalate to PMO
           </label>
         </div>
 
-        <div className={styles.field}>
-          <div className={styles.label}>
-            Description <span className={styles.req}>*</span>
-          </div>
-          <textarea
-            className={styles.textarea}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={5}
-          />
-        </div>
+        <FormField label="Description" required>
+          <textarea className={styles.textarea} value={description} onChange={(e) => setDescription(e.target.value)} rows={5} />
+        </FormField>
 
-        <div className={styles.field}>
-          <div className={styles.label}>
-            Impact <span className={styles.req}>*</span>
-          </div>
-          <textarea
-            className={styles.textarea}
-            value={impact}
-            onChange={(e) => setImpact(e.target.value)}
-            rows={4}
-          />
-        </div>
+        <FormField label="Impact" required>
+          <textarea className={styles.textarea} value={impact} onChange={(e) => setImpact(e.target.value)} rows={4} />
+        </FormField>
       </div>
 
       {/* Dates & People */}
       <div className={styles.section}>
-        <div className={styles.sectionTitle}>
-          <span>Dates & ownership</span>
-          <span className={styles.muted}>Open / Report / Assignee</span>
-        </div>
+        <SectionHeader title="Dates & ownership" subtitle="Open / Report / Assignee" />
 
         <div className={styles.grid2}>
-          <div className={styles.field} style={{ marginTop: 0 }}>
-            <div className={styles.label}>
-              Open Date <span className={styles.req}>*</span>
-            </div>
-            <input
-              type="date"
-              className={styles.date}
-              value={openDate}
-              onChange={(e) => setOpenDate(e.target.value)}
-            />
-          </div>
+          <FormField label="Open Date" required marginTop={false}>
+            <input type="date" className={styles.date} value={openDate} onChange={(e) => setOpenDate(e.target.value)} />
+          </FormField>
 
-          <div className={styles.field} style={{ marginTop: 0 }}>
-            <div className={styles.label}>Aging</div>
-            <input
-              className={`${styles.input} ${styles.readonly}`}
-              readOnly
-              value={`${agingDays} days`}
-            />
-          </div>
+          <FormField label="Aging" marginTop={false}>
+            <input className={`${styles.input} ${styles.readonly}`} readOnly value={`${agingDays} days`} />
+          </FormField>
         </div>
 
-        <div className={styles.field}>
-          <div className={styles.label}>
-            Assignee (PM) <span className={styles.req}>*</span>
-          </div>
+        <FormField label="Assignee (PM)" required>
           <select
             className={styles.select}
             value={assigneeId}
@@ -414,129 +395,72 @@ reported_by_from_table: reportedFrom,
             disabled={loadingPMs}
           >
             <option value="">{loadingPMs ? "Loading..." : "Select Project Manager"}</option>
-            {pms.map((pm) => {
-              const name = pm.display_name?.trim() || pm.user_code;
-              const role = pm.role_title?.trim() || "Project Manager";
-              return (
-                <option key={pm.id} value={pm.id}>
-                  {name} - {role}
-                </option>
-              );
-            })}
+            {pms.map((pm) => (
+              <option key={pm.id} value={pm.id}>
+                {pm.display_name?.trim() || pm.user_code} - {pm.role_title?.trim() || "Project Manager"}
+              </option>
+            ))}
           </select>
-        </div>
+        </FormField>
 
-        <div className={styles.field}>
-  <div className={styles.label}>
-    Report By <span className={styles.req}>*</span>
-  </div>
-  <select
-  className={styles.select}
-  value={reportedByUserCode}
-  onChange={(e) => setReportedByUserCode(e.target.value)}
-  disabled={loadingRiskTeams}
->
-  <option value="" disabled>
-    Select Report By
-  </option>
+        <FormField label="Report By" required>
+          <select
+            className={styles.select}
+            value={reportedByUserCode}
+            onChange={(e) => setReportedByUserCode(e.target.value)}
+            disabled={loadingRiskTeams}
+          >
+            <option value="" disabled>
+              Select Report By
+            </option>
+            <option value="risk_teams">risk_teams</option>
+            {localUsername && <option value={localUsername}>Me: {localUsername}</option>}
+            {riskTeams
+              .filter((u) => !!u.user_code)
+              .map((u) => (
+                <option key={u.user_code} value={u.user_code}>
+                  {u.display_name ? `${u.display_name} (${u.user_code})` : u.user_code}
+                </option>
+              ))}
+          </select>
+        </FormField>
 
-  {/* ✅ default สำหรับ DEV */}
-  <option value="risk_teams">
-    risk_teams
-  </option>
-
-  {localUsername && (
-    <option value={localUsername}>
-      Me: {localUsername}
-    </option>
-  )}
-
-  {riskTeams
-    .filter((u) => !!u.user_code)
-    .map((u) => (
-      <option key={u.user_code} value={u.user_code}>
-        {u.display_name
-          ? `${u.display_name} (${u.user_code})`
-          : u.user_code}
-      </option>
-    ))}
-</select>
-</div>
-
-        <div className={styles.field}>
-          <div className={styles.label}>
-            Report Date <span className={styles.req}>*</span>
-          </div>
-          <input
-            type="date"
-            className={styles.date}
-            value={reportDate}
-            onChange={(e) => setReportDate(e.target.value)}
-          />
-        </div>
+        <FormField label="Report Date" required>
+          <input type="date" className={styles.date} value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
+        </FormField>
       </div>
 
       {/* Classification */}
       <div className={styles.section}>
-        <div className={styles.sectionTitle}>
-          <span>Classification</span>
-          <span className={styles.muted}>Environment & Priority</span>
-        </div>
-
+        <SectionHeader title="Classification" subtitle="Environment & Priority" />
         <div className={styles.grid2}>
-          <div className={styles.field} style={{ marginTop: 0 }}>
-            <div className={styles.label}>
-              Environment <span className={styles.req}>*</span>
-            </div>
-            <select
-              className={styles.select}
-              value={environmentCode}
-              onChange={(e) => setEnvironmentCode(e.target.value ? Number(e.target.value) : "")}
-              disabled={loadingLookups}
-            >
-              <option value="">{loadingLookups ? "Loading..." : "Select option"}</option>
-              {environments.map((x) => (
-                <option key={x.code} value={x.code}>
-                  {x.value}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className={styles.field} style={{ marginTop: 0 }}>
-            <div className={styles.label}>
-              Priority Level <span className={styles.req}>*</span>
-            </div>
-            <select
-              className={styles.select}
-              value={priorityCode}
-              onChange={(e) => setPriorityCode(e.target.value ? Number(e.target.value) : "")}
-              disabled={loadingLookups}
-            >
-              <option value="">{loadingLookups ? "Loading..." : "Select option"}</option>
-              {priorities.map((x) => (
-                <option key={x.code} value={x.code}>
-                  {x.value}
-                </option>
-              ))}
-            </select>
-          </div>
+          <SelectField
+            label="Environment"
+            required
+            value={environmentCode}
+            onChange={setEnvironmentCode}
+            options={environments}
+            loading={loadingLookups}
+            marginTop={false}
+          />
+          <SelectField
+            label="Priority Level"
+            required
+            value={priorityCode}
+            onChange={setPriorityCode}
+            options={priorities}
+            loading={loadingLookups}
+            marginTop={false}
+          />
         </div>
       </div>
 
       {/* Component & Target */}
       <div className={styles.section}>
-        <div className={styles.sectionTitle}>
-          <span>Component & Target</span>
-          <span className={styles.muted}>Component, Target Date, Noti</span>
-        </div>
+        <SectionHeader title="Component & Target" subtitle="Component, Target Date, Noti" />
 
         <div className={styles.grid2}>
-          <div className={styles.field} style={{ marginTop: 0 }}>
-            <div className={styles.label}>
-              Component <span className={styles.req}>*</span>
-            </div>
-
+          <FormField label="Component" required marginTop={false}>
             <div className={styles.rowInline}>
               <select
                 className={styles.select}
@@ -551,115 +475,64 @@ reported_by_from_table: reportedFrom,
                   </option>
                 ))}
               </select>
-
-              <button
-                type="button"
-                className={styles.iconBtn}
-                title="Add component"
-                onClick={() => setOpenAddComponent(true)}
-              >
+              <button type="button" className={styles.iconBtn} title="Add component" onClick={() => setOpenAddComponent(true)}>
                 +
               </button>
             </div>
-          </div>
+          </FormField>
 
-          <div className={styles.field} style={{ marginTop: 0 }}>
-            <div className={styles.label}>
-              Target Date <span className={styles.req}>*</span>
-            </div>
-
+          <FormField label="Target Date" required marginTop={false}>
             <div className={styles.rowInline}>
-              <input
-                type="date"
-                className={styles.date}
-                value={targetDate}
-                onChange={(e) => setTargetDate(e.target.value)}
-              />
-
+              <input type="date" className={styles.date} value={targetDate} onChange={(e) => setTargetDate(e.target.value)} />
               <label className={styles.toggleWrap} title="Notification enable/disable">
                 Noti
-                <input
-                  type="checkbox"
-                  checked={notifyEnabled}
-                  onChange={(e) => setNotifyEnabled(e.target.checked)}
-                />
+                <input type="checkbox" checked={notifyEnabled} onChange={(e) => setNotifyEnabled(e.target.checked)} />
               </label>
             </div>
-          </div>
+          </FormField>
         </div>
 
-        <div className={styles.field}>
-          <div className={styles.label}>Refer to Product Case No.</div>
-          <input
-            className={styles.input}
-            value={referCaseNo}
-            onChange={(e) => setReferCaseNo(e.target.value)}
-          />
-        </div>
+        <FormField label="Refer to Product Case No.">
+          <input className={styles.input} value={referCaseNo} onChange={(e) => setReferCaseNo(e.target.value)} />
+        </FormField>
       </div>
 
       {/* Resolution */}
       <div className={styles.section}>
-        <div className={styles.sectionTitle}>
-          <span>Resolution</span>
-          <span className={styles.muted}>Optional</span>
-        </div>
+        <SectionHeader title="Resolution" subtitle="Optional" />
 
-        <div className={styles.field} style={{ marginTop: 0 }}>
-          <div className={styles.label}>Root Cause</div>
-          <input
-            className={styles.input}
-            value={rootCause}
-            onChange={(e) => setRootCause(e.target.value)}
-          />
-        </div>
+        <FormField label="Root Cause" marginTop={false}>
+          <input className={styles.input} value={rootCause} onChange={(e) => setRootCause(e.target.value)} />
+        </FormField>
 
-        <div className={styles.field}>
-          <div className={styles.label}>Resolution</div>
-          <input
-            className={styles.input}
-            value={resolution}
-            onChange={(e) => setResolution(e.target.value)}
-          />
-        </div>
+        <FormField label="Resolution">
+          <input className={styles.input} value={resolution} onChange={(e) => setResolution(e.target.value)} />
+        </FormField>
 
-        <div className={styles.field}>
-          <div className={styles.label}>Resolution Date</div>
-          <input
-            type="date"
-            className={styles.date}
-            value={resolutionDate}
-            onChange={(e) => setResolutionDate(e.target.value)}
-          />
-        </div>
+        <FormField label="Resolution Date">
+          <input type="date" className={styles.date} value={resolutionDate} onChange={(e) => setResolutionDate(e.target.value)} />
+        </FormField>
 
-        <div className={styles.field}>
-          <div className={styles.label}>Remark</div>
-          <textarea
-            className={styles.textarea}
-            value={remark}
-            onChange={(e) => setRemark(e.target.value)}
-            rows={4}
-          />
-        </div>
+        <FormField label="Remark">
+          <textarea className={styles.textarea} value={remark} onChange={(e) => setRemark(e.target.value)} rows={4} />
+        </FormField>
       </div>
 
-      {/* Footer Buttons */}
+      {/* Footer */}
       <div className={styles.footer}>
         <button type="button" className={styles.btn} onClick={onClose} disabled={saving}>
           Cancel
         </button>
-        <button
-          type="button"
-          className={`${styles.btn} ${styles.btnPrimary}`}
-          onClick={onSubmit}
-          disabled={saving}
-        >
-          {saving ? "Submitting..." : "Submit"}
+        <button type="button" className={`${styles.btn} ${styles.btnPrimary}`} onClick={onSubmit} disabled={saving || saveState === "success"}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            {saveState === "saving" && <Loader2 className="h-4 w-4 animate-spin" />}
+            {saveState === "success" && <CheckCircle2 className="h-4 w-4" />}
+            {saveState === "error" && <XCircle className="h-4 w-4" />}
+            {saveState === "saving" ? "Submitting..." : saveState === "success" ? "Submitted" : "Submit"}
+          </span>
         </button>
       </div>
 
-      {/* Add Component Modal */}
       <AddIssueComponentModal
         open={openAddComponent}
         onClose={() => setOpenAddComponent(false)}

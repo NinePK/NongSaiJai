@@ -1,75 +1,118 @@
 // app/admin/sessions/page.tsx
-import { headers } from "next/headers";
-import AdminSessionsClient, { type KPI } from "./sessions.client";
-import type { SessionRow } from "./SessionsTable";
-async function getBaseUrl() {
-  const envBase = process.env.NEXT_PUBLIC_BASE_URL;
-  if (envBase) return envBase.replace(/\/$/, "");
+import AdminSessionsClient from "./sessions.client";
+import { pool } from "@/lib/db";
 
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  if (!host) return "http://localhost:3000";
-  return `${proto}://${host}`;
-}
-
-async function fetchSessions(baseUrl: string, q: string, status: string) {
-  const sp = new URLSearchParams();
-  if (q) sp.set("q", q);
-  if (status && status !== "ALL") sp.set("status", status);
-  sp.set("limit", "50");
-
-  const res = await fetch(`${baseUrl}/api/admin/sessions?${sp.toString()}`, {
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(await res.text());
-
-  const raw = (await res.json()) as { items: any[]; nextCursor: string | null };
-
-  // ✅ normalize: กันกรณี API/view ยังไม่ส่ง is_admin_opened มา
-  const items: SessionRow[] = (raw.items ?? []).map((r) => ({
-    ...r,
-    is_admin_opened: Boolean(r.is_admin_opened),
-  }));
-
-  return { items, nextCursor: raw.nextCursor };
-}
-
-async function fetchSummary(baseUrl: string, q: string, status: string) {
-  const sp = new URLSearchParams();
-  if (q) sp.set("q", q);
-  if (status && status !== "ALL") sp.set("status", status);
-
-  const res = await fetch(`${baseUrl}/api/admin/sessions/summary?${sp.toString()}`, {
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(await res.text());
-
-  return (await res.json()) as { ok: boolean; kpi: KPI };
-}
+type SearchParams = {
+  q?: string;
+  status?: string;
+  category?: string;
+  mpsent?: string;
+  month?: string; // YYYY-MM
+};
 
 export default async function AdminSessionsPage({
   searchParams,
 }: {
-  searchParams: { q?: string; status?: string };
+  searchParams: Promise<SearchParams>;
 }) {
-  const baseUrl = await getBaseUrl();
+  // ✅ Next.js App Router: searchParams เป็น Promise
+  const {
+    q = "",
+    status = "ALL",
+    category = "ALL",
+    mpsent = "ALL",
+    month = "",
+  } = await searchParams;
 
-  const q = (searchParams.q ?? "").trim();
-  const status = (searchParams.status ?? "ALL").trim() || "ALL";
+  const limit = 50;
 
-  const [data, summary] = await Promise.all([
-    fetchSessions(baseUrl, q, status),
-    fetchSummary(baseUrl, q, status),
-  ]);
+  // =========================
+  // 1) Load sessions (filtered)
+  // =========================
+  const { rows: sessions } = await pool.query(
+    `
+    select
+      *
+    from
+      public.v_ai_session_admin
+    where
+      (
+        $1 = ''
+        or proj_code ilike '%' || $1 || '%'
+        or ai_summary ilike '%' || $1 || '%'
+      )
+      and ($2 = 'ALL' or effective_status = $2)
+      and ($3 = 'ALL' or effective_primary_category = $3)
+      and (
+        $4 = 'ALL'
+        or ($4 = 'SENT' and is_sent_to_mpsmart = true)
+        or ($4 = 'NOT_SENT' and is_sent_to_mpsmart = false)
+      )
+      and (
+        $5 = ''
+        or (
+          last_message_at is not null
+          and date_trunc('month', last_message_at)
+              = to_date($5, 'YYYY-MM')
+        )
+      )
+    order by
+      last_message_at desc nulls last
+    limit $6
+    `,
+    [q, status, category, mpsent, month, limit]
+  );
+
+  // =========================
+  // 2) KPI (นับตาม filter ชุดเดียวกัน)
+  // =========================
+  const { rows: kpiRows } = await pool.query(
+    `
+    select
+      count(*)::int as total,
+      count(*) filter (where effective_status = 'ISSUE')::int as issue,
+      count(*) filter (where effective_status = 'RISK')::int as risk,
+      count(*) filter (where effective_status = 'CONCERN')::int as concern,
+      count(*) filter (where effective_status = 'NON_RISK')::int as normal
+    from
+      public.v_ai_session_admin
+    where
+      (
+        $1 = ''
+        or proj_code ilike '%' || $1 || '%'
+        or ai_summary ilike '%' || $1 || '%'
+      )
+      and ($2 = 'ALL' or effective_status = $2)
+      and ($3 = 'ALL' or effective_primary_category = $3)
+      and (
+        $4 = 'ALL'
+        or ($4 = 'SENT' and is_sent_to_mpsmart = true)
+        or ($4 = 'NOT_SENT' and is_sent_to_mpsmart = false)
+      )
+      and (
+        $5 = ''
+        or (
+          last_message_at is not null
+          and date_trunc('month', last_message_at)
+              = to_date($5, 'YYYY-MM')
+        )
+      )
+    `,
+    [q, status, category, mpsent, month]
+  );
+
+  const kpi = kpiRows?.[0] ?? null;
 
   return (
     <AdminSessionsClient
+      sessions={sessions}
+      nextCursor={null}
+      kpi={kpi}
       initialQuery={q}
       initialStatus={status}
-      sessions={data.items}
-      nextCursor={data.nextCursor}
-      kpi={summary?.ok ? summary.kpi : null}
+      initialCategory={category}
+      initialMpSent={mpsent}
+      initialMonth={month}
     />
   );
 }

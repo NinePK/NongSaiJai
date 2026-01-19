@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { OverrideButtons } from "./OverrideButtons";
 import { pool } from "@/lib/db";
+import { ProjCodeBlock } from "./ProjCodeBlock";
+import { ProjectInfoCard } from "./ProjectInfoCard";
+
 type Session = any;
 type Message = {
   id: string;
@@ -8,24 +11,27 @@ type Message = {
   message_text: string;
   timestamp: string;
 };
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
-// ===== API Calls =====
-async function fetchSession(sessionId: string) {
-  const res = await fetch(`${BASE_URL}/api/admin/sessions/${sessionId}`, {
-    cache: "no-store",
-  });
+
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL;
+
+const fetchSession = async (sessionId: string) => {
+  const res = await fetch(`${BASE_URL}/api/admin/sessions/${sessionId}`, { cache: "no-store" });
   if (!res.ok) throw new Error(await res.text());
   return (await res.json()).session as Session;
-}
+};
 
-async function fetchMessages(sessionId: string) {
-  const res = await fetch(
-    `${BASE_URL}/api/admin/sessions/${sessionId}/messages`,
-    { cache: "no-store" }
-  );
+const fetchMessages = async (sessionId: string) => {
+  const res = await fetch(`${BASE_URL}/api/admin/sessions/${sessionId}/messages`, { cache: "no-store" });
   if (!res.ok) throw new Error(await res.text());
   return (await res.json()).items as Message[];
-}
+};
+
+const markAdminOpened = async (sessionId: string) => {
+  await pool.query(
+    `UPDATE public.ai_chat_sessions SET is_admin_opened = true WHERE id = $1::uuid AND is_admin_opened = false`,
+    [sessionId]
+  );
+};
 
 const fmtDT = (v?: string | null) => {
   if (!v) return "-";
@@ -36,16 +42,15 @@ const fmtDT = (v?: string | null) => {
   }
 };
 
-const getToneColor = (tone: string) => {
-  const colors = {
-    red: { bg: "rgba(239,68,68,0.15)", fg: "#fecaca", bd: "rgba(239,68,68,0.35)" },
-    yellow: { bg: "var(--badge-yellow-bg)", fg: "var(--badge-yellow-fg)", bd: "var(--badge-yellow-bd)" },
-    green: { bg: "rgba(34,197,94,0.15)", fg: "#bbf7d0", bd: "rgba(34,197,94,0.35)" },
-    blue: { bg: "rgba(59,130,246,0.15)", fg: "#bfdbfe", bd: "rgba(59,130,246,0.35)" },
-    gray: { bg: "rgba(148,163,184,0.12)", fg: "var(--text)", bd: "rgba(148,163,184,0.25)" },
-  };
-  return colors[tone as keyof typeof colors] || colors.gray;
+const TONE_COLORS = {
+  red: { bg: "rgba(239,68,68,0.15)", fg: "#b91c1c", bd: "rgba(239,68,68,0.35)" },
+  yellow: { bg: "var(--badge-yellow-bg)", fg: "#a69119", bd: "var(--badge-yellow-bd)" },
+  green: { bg: "rgba(34,197,94,0.15)", fg: "#2d613f", bd: "rgba(34,197,94,0.35)" },
+  blue: { bg: "rgba(59,130,246,0.15)", fg: "#bfdbfe", bd: "rgba(59,130,246,0.35)" },
+  gray: { bg: "rgba(148,163,184,0.12)", fg: "var(--text)", bd: "rgba(148,163,184,0.25)" },
 };
+
+const getToneColor = (tone: string) => TONE_COLORS[tone as keyof typeof TONE_COLORS] || TONE_COLORS.gray;
 
 const statusToTone = (status?: string | null) => {
   if (status === "ISSUE" || status === "RISK") return "red";
@@ -60,8 +65,8 @@ const getStarTone = (score: number, isLight: boolean) => {
     if (score === 3) return { fg: "#7a4a00", bg: "rgba(255,233,179,0.55)", bd: "rgba(217,119,6,0.35)" };
     return { fg: "#334155", bg: "#f1f5f9", bd: "#cbd5e1" };
   }
-  if (score >= 4) return { fg: "#fecaca", bg: "rgba(239,68,68,0.16)", bd: "rgba(239,68,68,0.35)" };
-  if (score === 3) return { fg: "#fde68a", bg: "rgba(245,158,11,0.16)", bd: "rgba(245,158,11,0.35)" };
+  if (score >= 4) return { fg: "#b91c1c", bg: "rgba(239,68,68,0.16)", bd: "rgba(239,68,68,0.35)" };
+  if (score === 3) return { fg: "#ccad2f", bg: "rgba(245,158,11,0.16)", bd: "rgba(245,158,11,0.35)" };
   return { fg: "var(--text)", bg: "rgba(148,163,184,0.12)", bd: "rgba(148,163,184,0.26)" };
 };
 
@@ -73,7 +78,8 @@ const prettyRiskScores = (scores: any) => {
     text: scores[k]?.text ?? null,
   }));
 };
-const Pill = ({ text, tone }: { text: string; tone: "red" | "yellow" | "green" | "gray" | "blue" }) => {
+
+const Pill = ({ text, tone }: { text: string; tone: keyof typeof TONE_COLORS }) => {
   const c = getToneColor(tone);
   return (
     <span
@@ -98,8 +104,7 @@ const Pill = ({ text, tone }: { text: string; tone: "red" | "yellow" | "green" |
 
 const StarScore = ({ score }: { score: number | null | undefined }) => {
   const n = Math.max(1, Math.min(5, Number(score ?? 1)));
-  const isLight = typeof window !== "undefined" && 
-    document.documentElement.getAttribute("data-theme") !== "dark";
+  const isLight = typeof window !== "undefined" && document.documentElement.getAttribute("data-theme") !== "dark";
   const tone = getStarTone(n, isLight);
 
   return (
@@ -125,11 +130,7 @@ const StarScore = ({ score }: { score: number | null | undefined }) => {
   );
 };
 
-const Card = ({ title, right, children }: { 
-  title: string; 
-  right?: React.ReactNode; 
-  children: React.ReactNode;
-}) => (
+const Card = ({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) => (
   <div
     style={{
       border: "1px solid var(--border)",
@@ -148,14 +149,7 @@ const Card = ({ title, right, children }: {
 );
 
 const RiskScoreItem = ({ item }: { item: { key: string; score: number | null; text: string | null } }) => (
-  <div
-    style={{
-      border: "1px solid var(--border)",
-      background: "var(--card2)",
-      borderRadius: 12,
-      padding: 12,
-    }}
-  >
+  <div style={{ border: "1px solid var(--border)", background: "var(--card2)", borderRadius: 12, padding: 12 }}>
     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
       <div
         style={{
@@ -192,46 +186,21 @@ const MessageBubble = ({ message }: { message: Message }) => {
         }}
       >
         <div style={{ display: "flex", gap: 10, alignItems: "baseline", marginBottom: 6 }}>
-          <span style={{ fontWeight: 950, fontSize: 12, color: "var(--text)" }}>
-            {isUser ? "USER" : "AI"}
-          </span>
-          <span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800 }}>
-            {fmtDT(message.timestamp)}
-          </span>
+          <span style={{ fontWeight: 950, fontSize: 12, color: "var(--text)" }}>{isUser ? "USER" : "AI"}</span>
+          <span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800 }}>{fmtDT(message.timestamp)}</span>
         </div>
-        <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, color: "var(--text)" }}>
-          {message.message_text}
-        </div>
+        <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55, color: "var(--text)" }}>{message.message_text}</div>
       </div>
     </div>
   );
 };
-async function markAdminOpened(sessionId: string) {
-  await pool.query(
-    `
-    update public.ai_chat_sessions
-    set is_admin_opened = true
-    where id = $1::uuid
-      and is_admin_opened = false
-    `,
-    [sessionId]
-  );
-}
-// ===== Main Page =====
-export default async function AdminSessionDetailPage({
-  params,
-}: {
-  params: Promise<{ sessionId: string }>;
-}) {
+
+export default async function AdminSessionDetailPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = await params;
 
-  // ✅ ทำก่อน เพื่อให้กลับไปหน้า list แล้วเห็น 🟦 หาย (เมื่อ refresh/รีเฟตช์)
   await markAdminOpened(sessionId);
 
-  const [session, messages] = await Promise.all([
-    fetchSession(sessionId),
-    fetchMessages(sessionId),
-  ]);
+  const [session, messages] = await Promise.all([fetchSession(sessionId), fetchMessages(sessionId)]);
 
   const status = session?.effective_status ?? null;
   const category = session?.effective_primary_category ?? null;
@@ -249,10 +218,7 @@ export default async function AdminSessionDetailPage({
       }}
     >
       <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-        <Link
-          href="/admin/sessions"
-          style={{ color: "var(--muted)", textDecoration: "none", fontWeight: 900 }}
-        >
+        <Link href="/admin/sessions" style={{ color: "var(--muted)", textDecoration: "none", fontWeight: 900 }}>
           ← Back to Sessions
         </Link>
 
@@ -263,10 +229,7 @@ export default async function AdminSessionDetailPage({
               {aiTitle?.trim() || "—"}
             </div>
             <div style={{ marginTop: 8, fontSize: 18, fontWeight: 900 }}>
-              Project Code{" "}
-              <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
-                {session?.proj_code ?? "-"}
-              </span>
+              <ProjCodeBlock sessionId={sessionId} initialProjCode={session?.proj_code ?? null} />
             </div>
             <div style={{ marginTop: 4, color: "var(--muted)" }}>
               Created: <b style={{ color: "var(--text)" }}>{fmtDT(session?.session_created_at)}</b>
@@ -311,37 +274,41 @@ export default async function AdminSessionDetailPage({
         </div>
 
         {/* Risk Scores + Conversation */}
-        <div style={{ display: "grid", gridTemplateColumns: "0.9fr 1.1fr", gap: 16, marginTop: 16 }}>
-          <Card title="Risk Scores">
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {scoreItems.length === 0 ? (
-                <div style={{ color: "var(--muted)" }}>-</div>
-              ) : (
-                scoreItems.map((item) => <RiskScoreItem key={item.key} item={item} />)
-              )}
+        <div style={{ display: "grid", gridTemplateColumns: "0.9fr 1.1fr", gap: 16, marginTop: 16, alignItems: "start" }}>
+          {/* LEFT: Risk Scores + Project Details */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <Card title="Risk Scores">
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {scoreItems.length === 0 ? (
+                  <div style={{ color: "var(--muted)" }}>-</div>
+                ) : (
+                  scoreItems.map((item) => <RiskScoreItem key={item.key} item={item} />)
+                )}
 
-              <details style={{ marginTop: 4 }}>
-                <summary style={{ cursor: "pointer", color: "var(--muted)", fontWeight: 900 }}>
-                  ดู JSON ทั้งก้อน
-                </summary>
-                <pre
-                  style={{
-                    marginTop: 10,
-                    background: "var(--card2)",
-                    border: "1px solid var(--border)",
-                    padding: 12,
-                    borderRadius: 12,
-                    overflowX: "auto",
-                    fontSize: 12,
-                    color: "var(--text)",
-                  }}
-                >
-                  {JSON.stringify(session?.ai_risk_scores ?? {}, null, 2)}
-                </pre>
-              </details>
-            </div>
-          </Card>
+                <details style={{ marginTop: 4 }}>
+                  <summary style={{ cursor: "pointer", color: "var(--muted)", fontWeight: 900 }}>ดู JSON ทั้งก้อน</summary>
+                  <pre
+                    style={{
+                      marginTop: 10,
+                      background: "var(--card2)",
+                      border: "1px solid var(--border)",
+                      padding: 12,
+                      borderRadius: 12,
+                      overflowX: "auto",
+                      fontSize: 12,
+                      color: "var(--text)",
+                    }}
+                  >
+                    {JSON.stringify(session?.ai_risk_scores ?? {}, null, 2)}
+                  </pre>
+                </details>
+              </div>
+            </Card>
 
+            <ProjectInfoCard projCode={session?.proj_code ?? null} />
+          </div>
+
+          {/* RIGHT: Conversation */}
           <Card title="Conversation">
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {messages.map((m) => (

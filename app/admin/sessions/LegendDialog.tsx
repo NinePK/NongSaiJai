@@ -1,7 +1,16 @@
 "use client";
 
 import React from "react";
-import { X, ShieldAlert, ShieldCheck, ShieldQuestion, Square, Send } from "lucide-react";
+import {
+  X,
+  AlertTriangle,
+  AlertCircle,
+  HelpCircle,
+  CheckCircle2,
+  Square,
+  Send,
+} from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import styles from "./sessions.module.css";
 
@@ -14,13 +23,50 @@ type LegendItem = {
 };
 
 const LEGEND: LegendItem[] = [
-  { key: "ISSUE", name: "ISSUE", desc: "ปัญหาที่เกิดขึ้นแล้ว (Alert) — สีแดงเข้มเลือดหมู", Icon: ShieldAlert, iconClass: styles.issue },
-  { key: "RISK", name: "RISK", desc: "ยังไม่เกิด แต่มีความเสี่ยงจะเกิด (Warning) — สีแดงฉูดฉาด", Icon: ShieldAlert, iconClass: styles.risk },
-  { key: "CONCERN", name: "CONCERN", desc: "ควรตรวจสอบ/ติดตาม — สีเหลืองอำพัน", Icon: ShieldQuestion, iconClass: styles.concern },
-  { key: "NON_RISK", name: "NON RISK", desc: "ไม่มีความเสี่ยง — โล่พร้อมเครื่องหมายติ้กถูก", Icon: ShieldCheck, iconClass: styles.nonrisk },
-  { key: "UNOPENED", name: "🟦", desc: "ยังไม่ถูกเปิดดูโดย Admin", Icon: Square, iconClass: styles.unopened },
-  { key: "SENT", name: "Sent", desc: "ข้อมูลถูกส่งไปยัง MPsmart แล้ว", Icon: Send, iconClass: styles.sent },
+  {
+    key: "ISSUE",
+    name: "ISSUE",
+    desc: "ปัญหาที่เกิดขึ้นแล้ว ต้องแก้ทันที",
+    Icon: AlertTriangle,
+    iconClass: styles.issue,
+  },
+  {
+    key: "RISK",
+    name: "RISK",
+    desc: "ยังไม่เกิด แต่มีแนวโน้มจะเกิด",
+    Icon: AlertCircle,
+    iconClass: styles.risk,
+  },
+  {
+    key: "CONCERN",
+    name: "CONCERN",
+    desc: "ควรตรวจสอบ / เฝ้าระวัง",
+    Icon: HelpCircle,
+    iconClass: styles.concern,
+  },
+  {
+    key: "NON_RISK",
+    name: "NO RISK",
+    desc: "ไม่มีความเสี่ยง",
+    Icon: CheckCircle2,
+    iconClass: styles.nonrisk,
+  },
+  {
+    key: "UNOPENED",
+    name: "🟦",
+    desc: "ยังไม่ถูกเปิดดูโดย Admin",
+    Icon: Square,
+    iconClass: styles.unopened,
+  },
+  {
+    key: "SENT",
+    name: "Sent",
+    desc: "ข้อมูลถูกส่งไปยัง MPsmart แล้ว",
+    Icon: Send,
+    iconClass: styles.sent,
+  },
 ];
+
 
 export function LegendDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   if (!open) return null;
