@@ -58,7 +58,7 @@ export function Filters({
           <SelectItem value="ISSUE">ISSUE</SelectItem>
           <SelectItem value="RISK">RISK</SelectItem>
           <SelectItem value="CONCERN">CONCERN</SelectItem>
-          <SelectItem value="NON_RISK">NO RISK</SelectItem>
+          <SelectItem value="NON_RISK">INFO - NO RISK</SelectItem>
         </SelectContent>
       </Select>
 

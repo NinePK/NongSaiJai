@@ -1,6 +1,6 @@
 /* app/admin/sessions/[sessionId]/IssueLogModal.module.css */
 
-@import "./RiskLogModal.module.css";
+@import "../risk/RiskLogModal.module.css";
 
 /* เพิ่มเฉพาะที่ ISSUE ต้องใช้ */
 .rowInline {

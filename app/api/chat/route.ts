@@ -1,6 +1,6 @@
 // app/api/session/route.ts
 import { NextResponse } from "next/server";
-
+import { v4 as uuidv4 } from 'uuid';
 type ReqBody = {
   message?: string;
   session_id?: string;         // sticky
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
       ? body.session_id.trim()
       : (typeof body.conversation_id === "string" && body.conversation_id.trim())
         ? body.conversation_id.trim()
-        : crypto.randomUUID();
+        : uuidv4();
 
   const payloadToN8n = {
     message: body.message,

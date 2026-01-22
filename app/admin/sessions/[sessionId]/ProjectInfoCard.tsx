@@ -26,7 +26,7 @@ type ProjectRow = {
   pm_position: string | null;
   pm_department: string | null;
   pm_email: string | null;
-
+  pm_phone: string | null;
   phase: string | null;
   phase_win_status: string | null;
   phase_order_status: string | null;
@@ -116,7 +116,8 @@ export async function ProjectInfoCard({ projCode }: { projCode: string | null })
       v.phase,
       v.phase_win_status,
       v.phase_order_status,
-      me.company_email as pm_email
+      me.company_email as pm_email,
+      me.mobile_phone_no as pm_phone
     from public.v_ai_project v
     left join public.master_employees me
       on lower(trim(me.code)) = lower(trim(v.pm_code))
@@ -215,7 +216,9 @@ export async function ProjectInfoCard({ projCode }: { projCode: string | null })
           <div style={{ fontSize: 13, color: "var(--muted)", fontWeight: 900 }}>PM</div>
           <div style={{ fontSize: 15, fontWeight: 950, color: "var(--text)" }}>
             {row.pm_name ?? "-"}
-            {row.pm_code ? <span style={{ color: "var(--muted)", fontWeight: 900 }}> ({row.pm_code})</span> : null}
+          </div>
+          <div>
+            {row.pm_phone ? <span style={{ color: "var(--muted)", fontWeight: 900 }}> ({row.pm_phone})</span> : null}
           </div>
           <div style={{ marginTop: 4, fontSize: 13, color: "var(--muted)", fontWeight: 800 }}>
             {row.pm_position ?? "-"}
@@ -233,6 +236,7 @@ export async function ProjectInfoCard({ projCode }: { projCode: string | null })
           <div style={{ marginTop: 4, fontSize: 13, color: "var(--muted)", fontWeight: 800 }}>
             {row.phase_win_status ? `Win: ${row.phase_win_status}` : "Win: -"} •{" "}
             {row.phase_order_status ? `Order: ${row.phase_order_status}` : "Order: -"}
+            
           </div>
         </div>
       </div>

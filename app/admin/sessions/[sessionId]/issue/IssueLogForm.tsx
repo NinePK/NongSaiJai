@@ -7,7 +7,7 @@ import { AddIssueComponentModal } from "./AddIssueComponentModal";
 import type { LookupItem, ProjectComponent } from "./issue-log.types";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { createPortal } from "react-dom";
-import { SaveOverlay } from "./SaveOverlay";
+import { SaveOverlay } from "../SaveOverlay";
 
 type ProjectPM = {
   id: number;

@@ -7,7 +7,7 @@ type SearchParams = {
   status?: string;
   category?: string;
   mpsent?: string;
-  month?: string; // YYYY-MM
+  month?: string; 
 };
 
 export default async function AdminSessionsPage({
@@ -25,10 +25,6 @@ export default async function AdminSessionsPage({
   } = await searchParams;
 
   const limit = 50;
-
-  // =========================
-  // 1) Load sessions (filtered)
-  // =========================
   const { rows: sessions } = await pool.query(
     `
     select

@@ -113,17 +113,12 @@ export default function ChatWidget() {
                 transform ${ANIM_MS}ms cubic-bezier(0.2, 0.9, 0.2, 1),
                 opacity ${ANIM_MS}ms ease
               `,
-
-              // “lifted” look
               boxShadow: "0 30px 90px rgba(0,0,0,0.45)",
               border: "1px solid rgba(255,255,255,0.10)",
               background: "var(--card)",
-
-              // Prevent interaction while animating out
               pointerEvents: isOpen ? "auto" : "none",
             }}
           >
-            {/* Keep ChatShell mounted inside; your messages persistence (localStorage) will keep history */}
             <ChatShell embedded />
           </div>
         </>

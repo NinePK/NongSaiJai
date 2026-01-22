@@ -5,6 +5,7 @@ import MessageList, { ChatMessage } from "@/components/chat/MessageList";
 import Composer from "@/components/chat/Composer";
 import Link from "next/link";
 import { Shield } from "lucide-react";
+import { v4 as uuidv4 } from "uuid";
 
 function uid() {
   return Math.random().toString(16).slice(2) + Date.now().toString(16);
@@ -15,11 +16,11 @@ const SESSION_KEY = "nongsai_session_id";
 const HISTORY_PREFIX = "nongsai_history:";
 
 function getOrCreateSessionId() {
-  if (typeof window === "undefined") return crypto.randomUUID();
+  if (typeof window === "undefined") return uuidv4();
 
   let id = localStorage.getItem(SESSION_KEY);
   if (!id) {
-    id = crypto.randomUUID();
+    id = uuidv4();
     localStorage.setItem(SESSION_KEY, id);
   }
   return id;
@@ -38,7 +39,13 @@ function loadHistory(sessionId: string): ChatMessage[] {
     if (!Array.isArray(parsed)) return [];
     // basic validation
     return parsed
-      .filter((x) => x && typeof x === "object" && typeof x.role === "string" && typeof x.content === "string")
+      .filter(
+        (x) =>
+          x &&
+          typeof x === "object" &&
+          typeof x.role === "string" &&
+          typeof x.content === "string",
+      )
       .map((x) => ({
         id: typeof x.id === "string" ? x.id : uid(),
         role: x.role === "assistant" ? "assistant" : "user",
@@ -60,9 +67,15 @@ function saveHistory(sessionId: string, messages: ChatMessage[]) {
   }
 }
 
-export default function ChatShell({ embedded = false }: { embedded?: boolean }) {
+export default function ChatShell({
+  embedded = false,
+}: {
+  embedded?: boolean;
+}) {
   const sessionId = useMemo(() => getOrCreateSessionId(), []);
-  const [messages, setMessages] = useState<ChatMessage[]>(() => loadHistory(sessionId));
+  const [messages, setMessages] = useState<ChatMessage[]>(() =>
+    loadHistory(sessionId),
+  );
   const [pending, setPending] = useState(false);
 
   // Persist messages ทุกครั้งที่เปลี่ยน (เพื่อไม่ให้หายเมื่อปิด modal)
@@ -93,7 +106,10 @@ export default function ChatShell({ embedded = false }: { embedded?: boolean }) 
 
     try {
       // ส่ง history ไปด้วย (ตามที่คุณทำอยู่)
-      const history = nextMessages.map((x) => ({ role: x.role, content: x.content }));
+      const history = nextMessages.map((x) => ({
+        role: x.role,
+        content: x.content,
+      }));
 
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -108,7 +124,7 @@ export default function ChatShell({ embedded = false }: { embedded?: boolean }) 
         }),
       });
 
-      const data = await res.json().catch(() => ({} as any));
+      const data = await res.json().catch(() => ({}) as any);
       const replyText = (data.reply ?? "").toString().trim();
 
       setMessages((m) => [
@@ -146,50 +162,51 @@ export default function ChatShell({ embedded = false }: { embedded?: boolean }) 
       >
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-base font-extrabold" style={{ color: "var(--text)" }}>
+            <div
+              className="text-base font-extrabold"
+              style={{ color: "var(--text)" }}
+            >
               น้องใส่ใจ
             </div>
-            
           </div>
 
           <div className="flex items-center gap-2">
-  {/* New chat */}
-  <button
-    type="button"
-    onClick={startNewChat}
-    disabled={pending}
-    className="rounded-full px-3 py-2 text-xs font-extrabold"
-    style={{
-      border: "1px solid var(--border)",
-      background: "var(--card)",
-      color: "var(--text)",
-      cursor: pending ? "not-allowed" : "pointer",
-      opacity: pending ? 0.6 : 1,
-    }}
-    title="เริ่มการสนทนาใหม่"
-  >
-    New chat
-  </button>
+            {/* Admin Sessions (แสดงเฉพาะใน Widget) */}
+            {embedded && (
+              <Link
+                href="/admin/sessions"
+                title="Admin Sessions"
+                className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-extrabold"
+                style={{
+                  border: "1px solid var(--border)",
+                  background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                  color: "white",
+                  textDecoration: "none",
+                }}
+              >
+                <Shield className="h-3.5 w-3.5" />
+                Admin
+              </Link>
+            )}
 
-  {/* Admin Sessions (แสดงเฉพาะใน Widget) */}
-  {embedded && (
-    <Link
-      href="/admin/sessions"
-      title="Admin Sessions"
-      className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-extrabold"
-      style={{
-        border: "1px solid var(--border)",
-        background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-        color: "white",
-        textDecoration: "none",
-      }}
-    >
-      <Shield className="h-3.5 w-3.5" />
-      Admin
-    </Link>
-  )}
-</div>
-
+            {/* New chat */}
+            <button
+              type="button"
+              onClick={startNewChat}
+              disabled={pending}
+              className="rounded-full px-3 py-2 text-xs font-extrabold"
+              style={{
+                border: "1px solid var(--border)",
+                background: "var(--card)",
+                color: "var(--text)",
+                cursor: pending ? "not-allowed" : "pointer",
+                opacity: pending ? 0.6 : 1,
+              }}
+              title="เริ่มการสนทนาใหม่"
+            >
+              New chat
+            </button>
+          </div>
         </div>
       </header>
 

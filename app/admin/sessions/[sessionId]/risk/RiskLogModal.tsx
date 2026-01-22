@@ -4,7 +4,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import styles from "./RiskLogModal.module.css";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
-import { SaveOverlay } from "./SaveOverlay";
+import { SaveOverlay } from "../SaveOverlay";
 
 // ✅ เพิ่ม code
 type LookupItem = {

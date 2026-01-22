@@ -315,7 +315,7 @@ useEffect(() => {
                 accent="amber"
               />
               <MetricCard
-                title="NO RISK"
+                title="Informational - NO RISK"
                 value={String(kpiView.normal)}
                 hint="ข้อมูลทั่วไป"
                 accent="cyan"

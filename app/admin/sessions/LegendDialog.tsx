@@ -46,7 +46,7 @@ const LEGEND: LegendItem[] = [
   },
   {
     key: "NON_RISK",
-    name: "NO RISK",
+    name: "INFO - NO RISK",
     desc: "ไม่มีความเสี่ยง",
     Icon: CheckCircle2,
     iconClass: styles.nonrisk,

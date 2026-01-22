@@ -3,11 +3,11 @@ import { pool } from "@/lib/db";
 
 export async function POST(
   _req: NextRequest,
-  { params }: { params: { sessionId: string } }
+  { params }: { params: Promise<{ sessionId: string }> }
 ) {
   try {
-    const sessionId = params.sessionId;
-
+    const { sessionId } = await params;
+    
     const result = await pool.query(
       `
       update public.ai_chat_sessions
@@ -17,9 +17,7 @@ export async function POST(
       `,
       [sessionId]
     );
-
     const changed = (result.rowCount ?? 0) > 0;
-
     return NextResponse.json({ ok: true, changed });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Unknown error";
