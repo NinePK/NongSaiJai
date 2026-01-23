@@ -1,18 +1,17 @@
-// app/api/mpsmart/risk-logs/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 
 type Payload = {
   session_id: string;
-
   project_code: string;
 
   risk_title: string;
   risk_description?: string | null;
   impact_description?: string | null;
 
-  risk_owner_id: number;
-  registered_by_id: number;
+  // client ส่งมาก็ได้ แต่ server จะ override
+  risk_owner_id?: number | null;
+  registered_by_id?: number | null;
 
   workstream?: string | null;
   migration_strategy?: string | null;
@@ -23,16 +22,13 @@ type Payload = {
 
   remark?: string | null;
 
-  // ✅ ส่งมาเป็น code 1..10
-  risk_category_code: number;
-
+  risk_category_code: number; // code 1..10
   likelihood_level_id: number; // 1..5
   impact_level_id: number; // 1..5
 
   status_id: number;
   registered_at: string; // ISO string
 
-  // จะถูกบังคับเป็น risk_teams
   risk_owner_from_table?: string;
   registered_by_from_table?: string;
 
@@ -51,22 +47,110 @@ function isISODate(s: string) {
   return !Number.isNaN(d.getTime());
 }
 
+function pickBearer(req: NextRequest) {
+  const h = req.headers.get("authorization") || "";
+  if (!h.toLowerCase().startsWith("bearer ")) return null;
+  return h.slice(7).trim();
+}
+
+async function getEmailFromToken(token: string) {
+  const uRes = await fetch("https://hadbapi.mfec.co.th/auth/v1/user", {
+    method: "GET",
+    headers: {
+      apikey: process.env.HADB_API_KEY!,
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+
+  if (!uRes.ok) return null;
+
+  const user = await uRes.json();
+  const emailRaw: string | null = user?.email ?? user?.user_metadata?.email ?? null;
+  return emailRaw ? String(emailRaw).trim().toLowerCase() : null;
+}
+
+async function getPemCodeByEmail(email: string) {
+  // code ใน pem_emp_rules = user_code ของคนนี้ (ตาม requirement ของคุณ)
+  const { rows } = await pool.query(
+    `
+    select code
+    from public.pem_emp_rules
+    where lower(email) = $1
+      and code is not null
+      and btrim(code) <> ''
+    order by seq asc, id asc
+    limit 1
+    `,
+    [email]
+  );
+  const code = rows?.[0]?.code ? String(rows[0].code).trim() : null;
+  return code && code.length ? code : null;
+}
+
+async function getPmTeamByUserCode(userCode: string) {
+  // ✅ เปลี่ยนชื่อ table/column ให้ตรง DB จริงของคุณถ้าไม่ใช่ pm_teams
+  const { rows } = await pool.query(
+    `
+    select id::bigint as id, user_code
+    from public.pm_teams
+    where user_code = $1
+    limit 1
+    `,
+    [userCode]
+  );
+
+  if (!rows?.length) return null;
+  return { id: Number(rows[0].id), user_code: String(rows[0].user_code) };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => null)) as Payload | null;
     if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
-    // ✅ Force from_table ตาม requirement ใหม่
+    // ✅ ต้องมี token เพื่อ map user -> pem code -> pm_teams
+    const token = pickBearer(req);
+    if (!token) {
+      return NextResponse.json({ error: "missing_authorization_token" }, { status: 401 });
+    }
+
+    const email = await getEmailFromToken(token);
+    if (!email) {
+      return NextResponse.json({ error: "invalid_token_or_missing_email" }, { status: 401 });
+    }
+
+    const pemCode = await getPemCodeByEmail(email);
+    if (!pemCode) {
+      return NextResponse.json(
+        { error: "missing_pem_code_for_user", email },
+        { status: 403 }
+      );
+    }
+
+    const pm = await getPmTeamByUserCode(pemCode);
+    if (!pm) {
+      return NextResponse.json(
+        { error: "cannot_resolve_pm_team_by_user_code", email, user_code: pemCode },
+        { status: 422 }
+      );
+    }
+
+    // ✅ บังคับ from_table ตาม requirement
     body.risk_owner_from_table = "risk_teams";
     body.registered_by_from_table = "risk_teams";
+
+    // ✅ Override ให้ถูกต้องตาม pm_teams
+    body.risk_owner_user_code = pm.user_code;
+    body.registered_by_user_code = pm.user_code;
+    body.risk_owner_id = pm.id;
+    body.registered_by_id = pm.id;
 
     // ===== Validate required =====
     const required: (keyof Payload)[] = [
       "session_id",
       "project_code",
       "risk_title",
-      "risk_owner_id",
-      "registered_by_id",
       "target_closure_date",
       "open_date",
       "risk_category_code",
@@ -89,7 +173,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "risk_category_code must be a number" }, { status: 400 });
     }
 
-    // (แนะนำ) เช็คว่ามีจริงใน lookups เพื่อกันส่ง code แปลก ๆ
     const { rows: catRows } = await pool.query(
       `
       select 1
@@ -126,7 +209,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "closed_date must be ISO date" }, { status: 400 });
     }
 
-    // ✅ สำคัญ: risk_category_id = code (1..10) เพื่อให้เข้ากับระบบอื่น
+    // ✅ สำคัญ: risk_category_id = code (1..10)
     const riskCategoryId = catCode;
 
     const q = `
@@ -213,7 +296,7 @@ export async function POST(req: NextRequest) {
       null,
       "NONGSAIJAI_AI",
       "NONGSAIJAI_AI",
-      Number(riskCategoryId), // ✅ code 1..10
+      Number(riskCategoryId),
       Number(body.likelihood_level_id),
       Number(body.impact_level_id),
       Number(body.status_id),
@@ -221,8 +304,8 @@ export async function POST(req: NextRequest) {
       body.remark ?? null,
       Number(body.registered_by_id),
       body.registered_at,
-      "risk_teams",
-      "risk_teams",
+      "pm_teams",
+      "pm_teams",
       body.is_escalate_to_pmo ?? false,
       body.is_escalate_to_management ?? false,
       body.from_app ?? "NongSaiJai",
@@ -231,7 +314,14 @@ export async function POST(req: NextRequest) {
     ];
 
     const { rows } = await pool.query(q, values);
-    return NextResponse.json({ ok: true, id: rows?.[0]?.id });
+    return NextResponse.json({
+      ok: true,
+      id: rows?.[0]?.id,
+      email,
+      pem_code: pemCode,
+      pm_team_id: pm.id,
+      pm_user_code: pm.user_code,
+    });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "unknown" }, { status: 500 });
   }

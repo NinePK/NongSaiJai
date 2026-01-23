@@ -28,6 +28,33 @@ type Props = {
   aiSummary: string;
   onSaved?: () => void;
 };
+function getHashParam(name: string) {
+  const hash = typeof window === "undefined" ? "" : window.location.hash;
+  const s = hash.startsWith("#") ? hash.slice(1) : hash;
+  const params = new URLSearchParams(s);
+  return params.get(name);
+}
+
+function getAccessTokenFromClient(): string | null {
+  try {
+    let t = window.localStorage.getItem("access_token");
+    if (!t) {
+      const fromHash = getHashParam("access_token");
+      if (fromHash) {
+        t = fromHash;
+        window.localStorage.setItem("access_token", fromHash);
+        window.history.replaceState(
+          {},
+          document.title,
+          window.location.pathname,
+        );
+      }
+    }
+    return t;
+  } catch {
+    return null;
+  }
+}
 
 export function RiskLogModal({
   open,
@@ -101,7 +128,7 @@ export function RiskLogModal({
   // ---- Form state ----
   // ✅ เปลี่ยนจาก id -> code
   const [riskCategoryCode, setRiskCategoryCode] = React.useState<number | "">(
-    ""
+    "",
   );
   const [registeredDate] = React.useState<string>(dateToYMD(new Date()));
 
@@ -127,7 +154,7 @@ export function RiskLogModal({
   const [saveState, setSaveState] = React.useState<
     "idle" | "saving" | "success" | "error"
   >("idle");
-const [saveMsg, setSaveMsg] = React.useState<string>("");
+  const [saveMsg, setSaveMsg] = React.useState<string>("");
 
   React.useEffect(() => {
     if (!show) return;
@@ -152,119 +179,120 @@ const [saveMsg, setSaveMsg] = React.useState<string>("");
   }
 
   async function onSave() {
-if (!projectCode) {
-  setSaveMsg("ไม่พบ project_code ของโครงการนี้");
-  setSaveState("error");
-  window.setTimeout(() => setSaveState("idle"), 1200);
-  return;
-}
-if (!riskCategoryCode) {
-  setSaveMsg("กรุณาเลือก Risk Category");
-  setSaveState("error");
-  window.setTimeout(() => setSaveState("idle"), 1200);
-  return;
-}
+    if (!projectCode) {
+      setSaveMsg("ไม่พบ project_code ของโครงการนี้");
+      setSaveState("error");
+      window.setTimeout(() => setSaveState("idle"), 1200);
+      return;
+    }
+    if (!riskCategoryCode) {
+      setSaveMsg("กรุณาเลือก Risk Category");
+      setSaveState("error");
+      window.setTimeout(() => setSaveState("idle"), 1200);
+      return;
+    }
 
-if (!targetDate) {
-  setSaveMsg("กรุณาเลือก Target Date");
-  setSaveState("error");
-  window.setTimeout(() => setSaveState("idle"), 1200);
-  return;
-}
+    if (!targetDate) {
+      setSaveMsg("กรุณาเลือก Target Date");
+      setSaveState("error");
+      window.setTimeout(() => setSaveState("idle"), 1200);
+      return;
+    }
 
-if (!sessionId) {
-  setSaveMsg("ไม่พบ session_id ของรายการนี้");
-  setSaveState("error");
-  window.setTimeout(() => setSaveState("idle"), 1200);
-  return;
-}
+    if (!sessionId) {
+      setSaveMsg("ไม่พบ session_id ของรายการนี้");
+      setSaveState("error");
+      window.setTimeout(() => setSaveState("idle"), 1200);
+      return;
+    }
 
+    const now = new Date();
+    const openISO = now.toISOString();
+    const registeredISO = new Date(`${registeredDate}T00:00:00`).toISOString();
+    const targetISO = new Date(`${targetDate}T00:00:00`).toISOString();
 
-  const now = new Date();
-  const openISO = now.toISOString();
-  const registeredISO = new Date(`${registeredDate}T00:00:00`).toISOString();
-  const targetISO = new Date(`${targetDate}T00:00:00`).toISOString();
+    const payload = {
+      session_id: sessionId,
+      project_code: projectCode,
 
-  const userCode = getUserCodeFromLocalStorage();
+      risk_title: riskTitle,
+      risk_description: riskDesc || null,
+      impact_description: impactDesc || null,
 
-  const payload = {
-    session_id: sessionId,
-    project_code: projectCode,
+      risk_owner_id: null,
+      registered_by_id: null,
 
-    risk_title: riskTitle,
-    risk_description: riskDesc || null,
-    impact_description: impactDesc || null,
+      workstream: workstream || null,
+      migration_strategy: null,
 
-    risk_owner_id: Number(riskOwnerId),
-    registered_by_id: Number(registeredById),
+      target_closure_date: targetISO,
+      open_date: openISO,
+      closed_date: null,
 
-    workstream: workstream || null,
-    migration_strategy: null,
+      remark: remark || null,
 
-    target_closure_date: targetISO,
-    open_date: openISO,
-    closed_date: null,
+      risk_category_code: Number(riskCategoryCode),
 
-    remark: remark || null,
+      likelihood_level_id: Number(likelihood),
+      impact_level_id: Number(impact),
 
-    risk_category_code: Number(riskCategoryCode),
+      status_id: Number(statusId),
+      registered_at: registeredISO,
 
-    likelihood_level_id: Number(likelihood),
-    impact_level_id: Number(impact),
+      risk_owner_from_table: "risk_teams",
+      registered_by_from_table: "risk_teams",
 
-    status_id: Number(statusId),
-    registered_at: registeredISO,
+      risk_owner_user_code: null,
+      registered_by_user_code: null,
 
-    risk_owner_from_table: "risk_teams",
-    registered_by_from_table: "risk_teams",
+      notify_enabled: true,
+      is_escalate_to_pmo: Boolean(escalatePMO),
+      is_escalate_to_management: false,
 
-    risk_owner_user_code: userCode,
-    registered_by_user_code: userCode,
+      from_app: "NongSaiJai",
+    };
 
-    notify_enabled: true,
-    is_escalate_to_pmo: Boolean(escalatePMO),
-    is_escalate_to_management: false,
-
-    from_app: "NongSaiJai",
-  };
-
-  setSaving(true);
-  setSaveState("saving");
-  setSaveMsg("");
-
-  try {
-    const res = await fetch(`/api/mpsmart/risk-logs`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const j = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(j?.error || "Insert failed");
-
-    setSaveState("success");
-    setSaveMsg("บันทึก Risk เรียบร้อยแล้ว");
+    setSaving(true);
+    setSaveState("saving");
+    setSaveMsg("");
 
     try {
-      onSaved?.();
-    } catch {}
+      const token = getAccessTokenFromClient();
 
-    window.setTimeout(() => {
-      setSaveState("idle");
-      onClose();
-    }, 900);
-  } catch (e: any) {
-    setSaveState("error");
-    setSaveMsg(e?.message ?? "Save error");
+      const res = await fetch(`/api/mpsmart/risk-logs`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
 
-    window.setTimeout(() => {
-      setSaveState("idle");
-    }, 1400);
-  } finally {
-    setSaving(false);
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(j?.error || "Insert failed");
+
+      setSaveState("success");
+      setSaveMsg("บันทึก Risk เรียบร้อยแล้ว");
+
+      try {
+        onSaved?.();
+      } catch {}
+
+      window.setTimeout(() => {
+        setSaveState("idle");
+        onClose();
+      }, 900);
+    } catch (e: any) {
+      setSaveState("error");
+      setSaveMsg(e?.message ?? "Save error");
+
+      window.setTimeout(() => {
+        setSaveState("idle");
+      }, 1400);
+    } finally {
+      setSaving(false);
+    }
   }
-}
-
 
   if (!mounted || !show) return null;
 
@@ -277,24 +305,25 @@ if (!sessionId) {
       <div className={styles.shield} onClick={onClose} />
 
       {/* ✅ ใส่ Overlay ตรงนี้เลย */}
-<SaveOverlay
-  open={saveState !== "idle"}
-  state={saveState === "idle" ? "saving" : saveState}
-  title={
-    saveState === "saving"
-      ? "กำลังบันทึก Risk..."
-      : saveState === "success"
-      ? "บันทึก Risk สำเร็จ"
-      : "บันทึก Risk ไม่สำเร็จ"
-  }
-  message={
-    saveState === "saving"
-      ? "โปรดรอสักครู่"
-      : saveMsg || (saveState === "success"
-      ? "ระบบได้บันทึกข้อมูลเรียบร้อยแล้ว"
-      : "กรุณาลองใหม่อีกครั้ง")
-  }
-/>
+      <SaveOverlay
+        open={saveState !== "idle"}
+        state={saveState === "idle" ? "saving" : saveState}
+        title={
+          saveState === "saving"
+            ? "กำลังบันทึก Risk..."
+            : saveState === "success"
+              ? "บันทึก Risk สำเร็จ"
+              : "บันทึก Risk ไม่สำเร็จ"
+        }
+        message={
+          saveState === "saving"
+            ? "โปรดรอสักครู่"
+            : saveMsg ||
+              (saveState === "success"
+                ? "ระบบได้บันทึกข้อมูลเรียบร้อยแล้ว"
+                : "กรุณาลองใหม่อีกครั้ง")
+        }
+      />
 
       <aside
         className={`${styles.panel} ${animOpen ? styles.panelOpen : ""}`}
@@ -342,7 +371,7 @@ if (!sessionId) {
                 value={riskCategoryCode}
                 onChange={(e) =>
                   setRiskCategoryCode(
-                    e.target.value ? Number(e.target.value) : ""
+                    e.target.value ? Number(e.target.value) : "",
                   )
                 }
                 disabled={loadingLookups}
@@ -567,8 +596,8 @@ if (!sessionId) {
               {saveState === "saving"
                 ? "Saving..."
                 : saveState === "success"
-                ? "Saved"
-                : "Save"}
+                  ? "Saved"
+                  : "Save"}
             </span>
           </button>
         </div>

@@ -6,13 +6,74 @@ import ChatShell from "@/components/chat/ChatShell";
 
 const ANIM_MS = 220;
 
+// ดึง token จาก ?access_token=... หรือ #access_token=...
+function pickTokenFromHashOrQuery() {
+  try {
+    // query string
+    const sp = new URLSearchParams(window.location.search);
+    const q =
+      sp.get("access_token") ||
+      sp.get("token") ||
+      sp.get("auth_token") ||
+      sp.get("t");
+    if (q && q.trim()) return q.trim();
+
+    // hash fragment
+    const hash = window.location.hash || "";
+    if (hash.startsWith("#")) {
+      const hp = new URLSearchParams(hash.slice(1));
+      const h =
+        hp.get("access_token") ||
+        hp.get("token") ||
+        hp.get("auth_token") ||
+        hp.get("t");
+      if (h && h.trim()) return h.trim();
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// แลก token → nsj_session cookie + nsj_admin cookie
+async function exchangeTokenForSessionOnce() {
+  const token = pickTokenFromHashOrQuery();
+  if (!token) return;
+
+  // กันยิงซ้ำ (optional)
+  const KEY = "nsj_session_exchanged";
+  try {
+    const already = window.sessionStorage.getItem(KEY);
+    if (already === "1") return;
+  } catch {}
+
+  const res = await fetch("/api/auth", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ token }),
+  cache: "no-store",
+});
+
+  // ไม่ throw เพื่อไม่ให้ widget พังตอน upstream มีปัญหา
+  if (res.ok) {
+    try {
+      window.sessionStorage.setItem(KEY, "1");
+    } catch {}
+  }
+}
+
 export default function ChatWidget() {
-  const [isOpen, setIsOpen] = useState(false);     // target state
+  const [isOpen, setIsOpen] = useState(false); // target state
   const [isMounted, setIsMounted] = useState(false); // keep in DOM for exit animation
+
+  // ✅ ทำครั้งเดียวตอน mount: แลก token เป็น cookie session
+  useEffect(() => {
+    exchangeTokenForSessionOnce().catch(() => {});
+  }, []);
 
   function open() {
     setIsMounted(true);
-    // next tick -> allow transition from initial styles
     requestAnimationFrame(() => setIsOpen(true));
   }
 
@@ -69,7 +130,11 @@ export default function ChatWidget() {
           transition: "transform 180ms cubic-bezier(0.2, 0.9, 0.2, 1)",
         }}
       >
-        {isMounted && isOpen ? <X className="h-5 w-5" /> : <MessageCircle className="h-5 w-5" />}
+        {isMounted && isOpen ? (
+          <X className="h-5 w-5" />
+        ) : (
+          <MessageCircle className="h-5 w-5" />
+        )}
       </button>
 
       {/* Modal (kept mounted for exit animation) */}
@@ -102,13 +167,10 @@ export default function ChatWidget() {
               maxHeight: "calc(100vh - 120px)",
               borderRadius: 18,
               overflow: "hidden",
-
-              // macOS feel: slight scale + vertical offset + ease-out
               transform: isOpen
                 ? "translateY(0px) translateX(0px) scale(1)"
                 : "translateY(14px) translateX(10px) scale(0.98)",
               opacity: isOpen ? 1 : 0,
-
               transition: `
                 transform ${ANIM_MS}ms cubic-bezier(0.2, 0.9, 0.2, 1),
                 opacity ${ANIM_MS}ms ease

@@ -16,11 +16,6 @@ type ProjectPM = {
   role_title?: string | null;
 };
 
-type RiskTeamUser = {
-  user_code: string;
-  display_name?: string | null;
-};
-
 type Props = {
   projectCode: string;
   sessionId: string;
@@ -124,7 +119,13 @@ const SelectField = ({
   </FormField>
 );
 
-const SectionHeader = ({ title, subtitle }: { title: string; subtitle: string }) => (
+const SectionHeader = ({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle: string;
+}) => (
   <div className={styles.sectionTitle}>
     <span>{title}</span>
     <span className={styles.muted}>{subtitle}</span>
@@ -150,22 +151,34 @@ export function IssueLogForm({
   const today = dateToYMD(new Date());
 
   const { data: pms, loading: loadingPMs } = useFetch<ProjectPM[]>(
-    projectCode ? `/api/mpsmart/project-pms?project_code=${encodeURIComponent(projectCode)}` : null,
-    []
+    projectCode
+      ? `/api/mpsmart/project-pms?project_code=${encodeURIComponent(projectCode)}`
+      : null,
+    [],
   );
 
-  const { data: riskTeams, loading: loadingRiskTeams } = useFetch<RiskTeamUser[]>(
-    projectCode ? `/api/mpsmart/risk-teams?project_code=${encodeURIComponent(projectCode)}` : null,
-    []
-  );
-
-  const [localUsername, setLocalUsername] = React.useState("");
   React.useEffect(() => {
-    try {
-      setLocalUsername(window.localStorage.getItem("username") || "");
-    } catch {
-      setLocalUsername("");
+    let alive = true;
+
+    async function loadMe() {
+      setLoadingMe(true);
+      try {
+        const res = await fetch("/api/auth", { cache: "no-store" });
+        const j = await res.json().catch(() => null);
+        const email = j?.email ? String(j.email).trim().toLowerCase() : "";
+
+        if (alive && email) setReportedByEmail(email);
+      } catch {
+        // ignore
+      } finally {
+        if (alive) setLoadingMe(false);
+      }
     }
+
+    loadMe();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const [issueTitle, setIssueTitle] = React.useState(aiTitle ?? "");
@@ -176,7 +189,8 @@ export function IssueLogForm({
   const [impact, setImpact] = React.useState("");
   const [openDate, setOpenDate] = React.useState(today);
   const [assigneeId, setAssigneeId] = React.useState<number | "">("");
-  const [reportedByUserCode, setReportedByUserCode] = React.useState("");
+  const [reportedByEmail, setReportedByEmail] = React.useState("");
+  const [loadingMe, setLoadingMe] = React.useState(false);
   const [reportDate, setReportDate] = React.useState(today);
   const [environmentCode, setEnvironmentCode] = React.useState<number | "">("");
   const [priorityCode, setPriorityCode] = React.useState<number | "">("");
@@ -189,7 +203,9 @@ export function IssueLogForm({
   const [resolutionDate, setResolutionDate] = React.useState("");
   const [remark, setRemark] = React.useState("");
   const [saving, setSaving] = React.useState(false);
-  const [saveState, setSaveState] = React.useState<"idle" | "saving" | "success" | "error">("idle");
+  const [saveState, setSaveState] = React.useState<
+    "idle" | "saving" | "success" | "error"
+  >("idle");
   const [saveMsg, setSaveMsg] = React.useState("");
   const [openAddComponent, setOpenAddComponent] = React.useState(false);
 
@@ -204,7 +220,7 @@ export function IssueLogForm({
 
   const selectedPM = React.useMemo(
     () => pms.find((x) => x.id === assigneeId) ?? null,
-    [assigneeId, pms]
+    [assigneeId, pms],
   );
 
   const agingDays = daysBetween(openDate, today);
@@ -224,20 +240,17 @@ export function IssueLogForm({
     if (!description.trim()) return showError("กรุณากรอก Description");
     if (!impact.trim()) return showError("กรุณากรอก Impact");
     if (!openDate) return showError("กรุณาเลือก Open Date");
-    if (!assigneeId || !selectedPM?.user_code) return showError("กรุณาเลือก Project Manager");
-    if (!reportedByUserCode) return showError("กรุณาเลือก Report By");
+    if (!assigneeId || !selectedPM?.user_code)
+      return showError("กรุณาเลือก Project Manager");
+    if (!reportedByEmail || !reportedByEmail.includes("@"))
+      return showError("ไม่พบ email ผู้ส่ง (Report By)");
     if (!reportDate) return showError("กรุณาเลือก Report Date");
     if (!environmentCode) return showError("กรุณาเลือก Environment");
     if (!priorityCode) return showError("กรุณาเลือก Priority Level");
     if (!componentId) return showError("กรุณาเลือก Component");
     if (!targetDate) return showError("กรุณาเลือก Target Date");
 
-    const reportedFrom =
-      reportedByUserCode === "risk_teams"
-        ? "risk_teams"
-        : localUsername && reportedByUserCode === localUsername
-        ? "localstorage"
-        : "risk_teams";
+    const reportedFrom = "pem_emp_rules";
 
     const payload = {
       session_id: sessionId,
@@ -256,11 +269,14 @@ export function IssueLogForm({
       notify_enabled: Boolean(notifyEnabled),
       is_escalate_to_pmo: Boolean(escalatePMO),
       is_escalate_to_management: false,
+
       assignee_id: Number(assigneeId),
       assignee_user_code: selectedPM.user_code,
       assignee_from_table: "pm_teams",
-      reported_by_user_code: reportedByUserCode === "risk_teams" ? null : reportedByUserCode,
-      reported_by_from_table: reportedFrom,
+
+      // ✅ NEW: ส่งเป็น email อย่างเดียว
+      reported_by_email: reportedByEmail,
+
       refer_product_case_number: referCaseNo.trim() || null,
       root_cause: rootCause.trim() || null,
       resolution: resolution.trim() || null,
@@ -303,7 +319,8 @@ export function IssueLogForm({
     }
   };
 
-  const overlayState: "saving" | "success" | "error" = saveState === "idle" ? "saving" : saveState;
+  const overlayState: "saving" | "success" | "error" =
+    saveState === "idle" ? "saving" : saveState;
 
   return (
     <>
@@ -316,16 +333,19 @@ export function IssueLogForm({
               saveState === "saving"
                 ? "กำลังบันทึก Issue..."
                 : saveState === "success"
-                ? "บันทึก Issue สำเร็จ"
-                : "บันทึก Issue ไม่สำเร็จ"
+                  ? "บันทึก Issue สำเร็จ"
+                  : "บันทึก Issue ไม่สำเร็จ"
             }
             message={
               saveState === "saving"
                 ? "โปรดรอสักครู่"
-                : saveMsg || (saveState === "success" ? "ระบบได้บันทึกข้อมูลเรียบร้อยแล้ว" : "กรุณาลองใหม่อีกครั้ง")
+                : saveMsg ||
+                  (saveState === "success"
+                    ? "ระบบได้บันทึกข้อมูลเรียบร้อยแล้ว"
+                    : "กรุณาลองใหม่อีกครั้ง")
             }
           />,
-          document.body
+          document.body,
         )}
 
       {/* Core */}
@@ -333,7 +353,11 @@ export function IssueLogForm({
         <SectionHeader title="Core details" subtitle="required *" />
 
         <FormField label="Issue title" required>
-          <input className={styles.input} value={issueTitle} onChange={(e) => setIssueTitle(e.target.value)} />
+          <input
+            className={styles.input}
+            value={issueTitle}
+            onChange={(e) => setIssueTitle(e.target.value)}
+          />
         </FormField>
 
         <div className={styles.grid2}>
@@ -359,31 +383,57 @@ export function IssueLogForm({
 
         <div className={styles.controlsRow}>
           <label className={styles.control} style={{ marginLeft: "auto" }}>
-            <input type="checkbox" checked={escalatePMO} onChange={(e) => setEscalatePMO(e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={escalatePMO}
+              onChange={(e) => setEscalatePMO(e.target.checked)}
+            />
             Escalate to PMO
           </label>
         </div>
 
         <FormField label="Description" required>
-          <textarea className={styles.textarea} value={description} onChange={(e) => setDescription(e.target.value)} rows={5} />
+          <textarea
+            className={styles.textarea}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={5}
+          />
         </FormField>
 
         <FormField label="Impact" required>
-          <textarea className={styles.textarea} value={impact} onChange={(e) => setImpact(e.target.value)} rows={4} />
+          <textarea
+            className={styles.textarea}
+            value={impact}
+            onChange={(e) => setImpact(e.target.value)}
+            rows={4}
+          />
         </FormField>
       </div>
 
       {/* Dates & People */}
       <div className={styles.section}>
-        <SectionHeader title="Dates & ownership" subtitle="Open / Report / Assignee" />
+        <SectionHeader
+          title="Dates & ownership"
+          subtitle="Open / Report / Assignee"
+        />
 
         <div className={styles.grid2}>
           <FormField label="Open Date" required marginTop={false}>
-            <input type="date" className={styles.date} value={openDate} onChange={(e) => setOpenDate(e.target.value)} />
+            <input
+              type="date"
+              className={styles.date}
+              value={openDate}
+              onChange={(e) => setOpenDate(e.target.value)}
+            />
           </FormField>
 
           <FormField label="Aging" marginTop={false}>
-            <input className={`${styles.input} ${styles.readonly}`} readOnly value={`${agingDays} days`} />
+            <input
+              className={`${styles.input} ${styles.readonly}`}
+              readOnly
+              value={`${agingDays} days`}
+            />
           </FormField>
         </div>
 
@@ -391,48 +441,54 @@ export function IssueLogForm({
           <select
             className={styles.select}
             value={assigneeId}
-            onChange={(e) => setAssigneeId(e.target.value ? Number(e.target.value) : "")}
+            onChange={(e) =>
+              setAssigneeId(e.target.value ? Number(e.target.value) : "")
+            }
             disabled={loadingPMs}
           >
-            <option value="">{loadingPMs ? "Loading..." : "Select Project Manager"}</option>
+            <option value="">
+              {loadingPMs ? "Loading..." : "Select Project Manager"}
+            </option>
             {pms.map((pm) => (
               <option key={pm.id} value={pm.id}>
-                {pm.display_name?.trim() || pm.user_code} - {pm.role_title?.trim() || "Project Manager"}
+                {pm.display_name?.trim() || pm.user_code} -{" "}
+                {pm.role_title?.trim() || "Project Manager"}
               </option>
             ))}
           </select>
         </FormField>
 
-        <FormField label="Report By" required>
-          <select
-            className={styles.select}
-            value={reportedByUserCode}
-            onChange={(e) => setReportedByUserCode(e.target.value)}
-            disabled={loadingRiskTeams}
-          >
-            <option value="" disabled>
-              Select Report By
-            </option>
-            <option value="risk_teams">risk_teams</option>
-            {localUsername && <option value={localUsername}>Me: {localUsername}</option>}
-            {riskTeams
-              .filter((u) => !!u.user_code)
-              .map((u) => (
-                <option key={u.user_code} value={u.user_code}>
-                  {u.display_name ? `${u.display_name} (${u.user_code})` : u.user_code}
-                </option>
-              ))}
-          </select>
+        <FormField label="Report By (Email)" required>
+          <input
+            className={`${styles.input} ${styles.readonly}`}
+            readOnly
+            value={reportedByEmail || (loadingMe ? "Loading..." : "")}
+            placeholder="Email from token"
+          />
+          {!reportedByEmail && !loadingMe && (
+            <div className={styles.muted} style={{ marginTop: 6 }}>
+              ไม่พบ session/email (ตรวจสอบว่าได้เรียก /api/auth/session
+              เพื่อสร้าง nsj_session cookie แล้ว)
+            </div>
+          )}
         </FormField>
 
         <FormField label="Report Date" required>
-          <input type="date" className={styles.date} value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
+          <input
+            type="date"
+            className={styles.date}
+            value={reportDate}
+            onChange={(e) => setReportDate(e.target.value)}
+          />
         </FormField>
       </div>
 
       {/* Classification */}
       <div className={styles.section}>
-        <SectionHeader title="Classification" subtitle="Environment & Priority" />
+        <SectionHeader
+          title="Classification"
+          subtitle="Environment & Priority"
+        />
         <div className={styles.grid2}>
           <SelectField
             label="Environment"
@@ -457,7 +513,10 @@ export function IssueLogForm({
 
       {/* Component & Target */}
       <div className={styles.section}>
-        <SectionHeader title="Component & Target" subtitle="Component, Target Date, Noti" />
+        <SectionHeader
+          title="Component & Target"
+          subtitle="Component, Target Date, Noti"
+        />
 
         <div className={styles.grid2}>
           <FormField label="Component" required marginTop={false}>
@@ -465,17 +524,26 @@ export function IssueLogForm({
               <select
                 className={styles.select}
                 value={componentId}
-                onChange={(e) => setComponentId(e.target.value ? Number(e.target.value) : "")}
+                onChange={(e) =>
+                  setComponentId(e.target.value ? Number(e.target.value) : "")
+                }
                 disabled={loadingComponents}
               >
-                <option value="">{loadingComponents ? "Loading..." : "Select option"}</option>
+                <option value="">
+                  {loadingComponents ? "Loading..." : "Select option"}
+                </option>
                 {components.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.value}
                   </option>
                 ))}
               </select>
-              <button type="button" className={styles.iconBtn} title="Add component" onClick={() => setOpenAddComponent(true)}>
+              <button
+                type="button"
+                className={styles.iconBtn}
+                title="Add component"
+                onClick={() => setOpenAddComponent(true)}
+              >
                 +
               </button>
             </div>
@@ -483,17 +551,33 @@ export function IssueLogForm({
 
           <FormField label="Target Date" required marginTop={false}>
             <div className={styles.rowInline}>
-              <input type="date" className={styles.date} value={targetDate} onChange={(e) => setTargetDate(e.target.value)} />
-              <label className={styles.toggleWrap} title="Notification enable/disable">
+              <input
+                type="date"
+                className={styles.date}
+                value={targetDate}
+                onChange={(e) => setTargetDate(e.target.value)}
+              />
+              <label
+                className={styles.toggleWrap}
+                title="Notification enable/disable"
+              >
                 Noti
-                <input type="checkbox" checked={notifyEnabled} onChange={(e) => setNotifyEnabled(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={notifyEnabled}
+                  onChange={(e) => setNotifyEnabled(e.target.checked)}
+                />
               </label>
             </div>
           </FormField>
         </div>
 
         <FormField label="Refer to Product Case No.">
-          <input className={styles.input} value={referCaseNo} onChange={(e) => setReferCaseNo(e.target.value)} />
+          <input
+            className={styles.input}
+            value={referCaseNo}
+            onChange={(e) => setReferCaseNo(e.target.value)}
+          />
         </FormField>
       </div>
 
@@ -502,33 +586,69 @@ export function IssueLogForm({
         <SectionHeader title="Resolution" subtitle="Optional" />
 
         <FormField label="Root Cause" marginTop={false}>
-          <input className={styles.input} value={rootCause} onChange={(e) => setRootCause(e.target.value)} />
+          <input
+            className={styles.input}
+            value={rootCause}
+            onChange={(e) => setRootCause(e.target.value)}
+          />
         </FormField>
 
         <FormField label="Resolution">
-          <input className={styles.input} value={resolution} onChange={(e) => setResolution(e.target.value)} />
+          <input
+            className={styles.input}
+            value={resolution}
+            onChange={(e) => setResolution(e.target.value)}
+          />
         </FormField>
 
         <FormField label="Resolution Date">
-          <input type="date" className={styles.date} value={resolutionDate} onChange={(e) => setResolutionDate(e.target.value)} />
+          <input
+            type="date"
+            className={styles.date}
+            value={resolutionDate}
+            onChange={(e) => setResolutionDate(e.target.value)}
+          />
         </FormField>
 
         <FormField label="Remark">
-          <textarea className={styles.textarea} value={remark} onChange={(e) => setRemark(e.target.value)} rows={4} />
+          <textarea
+            className={styles.textarea}
+            value={remark}
+            onChange={(e) => setRemark(e.target.value)}
+            rows={4}
+          />
         </FormField>
       </div>
 
       {/* Footer */}
       <div className={styles.footer}>
-        <button type="button" className={styles.btn} onClick={onClose} disabled={saving}>
+        <button
+          type="button"
+          className={styles.btn}
+          onClick={onClose}
+          disabled={saving}
+        >
           Cancel
         </button>
-        <button type="button" className={`${styles.btn} ${styles.btnPrimary}`} onClick={onSubmit} disabled={saving || saveState === "success"}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            {saveState === "saving" && <Loader2 className="h-4 w-4 animate-spin" />}
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.btnPrimary}`}
+          onClick={onSubmit}
+          disabled={saving || saveState === "success"}
+        >
+          <span
+            style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+          >
+            {saveState === "saving" && (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            )}
             {saveState === "success" && <CheckCircle2 className="h-4 w-4" />}
             {saveState === "error" && <XCircle className="h-4 w-4" />}
-            {saveState === "saving" ? "Submitting..." : saveState === "success" ? "Submitted" : "Submit"}
+            {saveState === "saving"
+              ? "Submitting..."
+              : saveState === "success"
+                ? "Submitted"
+                : "Submit"}
           </span>
         </button>
       </div>

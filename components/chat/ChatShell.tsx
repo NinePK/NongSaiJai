@@ -15,6 +15,8 @@ const SESSION_KEY = "nongsai_session_id";
 // เก็บข้อความแยกตาม session
 const HISTORY_PREFIX = "nongsai_history:";
 
+
+
 function getOrCreateSessionId() {
   if (typeof window === "undefined") return uuidv4();
 
@@ -77,6 +79,40 @@ export default function ChatShell({
     loadHistory(sessionId),
   );
   const [pending, setPending] = useState(false);
+  const [enteringAdmin, setEnteringAdmin] = useState(false);
+
+async function enterAdmin() {
+  try {
+    setEnteringAdmin(true);
+
+    // ✅ เช็ค session จาก cookie (auth + authz รวม)
+    const r = await fetch("/api/auth", { cache: "no-store" });
+
+    const ct = r.headers.get("content-type") || "";
+    if (!ct.includes("application/json")) {
+      const t = await r.text();
+      alert(`เข้า Admin ไม่ได้ (HTTP ${r.status})\n${t.slice(0, 200)}...`);
+      return;
+    }
+
+    const j = await r.json().catch(() => null);
+
+    if (!r.ok || !j?.ok) {
+      alert(`เข้า Admin ไม่ได้ (HTTP ${r.status})\n${JSON.stringify(j)}`);
+      return;
+    }
+
+    if (!j.isAdmin) {
+      alert("คุณไม่มีสิทธิ์เข้า Admin");
+      return;
+    }
+
+    // ✅ ผ่านแล้ว
+    window.location.href = "/admin/sessions";
+  } finally {
+    setEnteringAdmin(false);
+  }
+}
 
   // Persist messages ทุกครั้งที่เปลี่ยน (เพื่อไม่ให้หายเมื่อปิด modal)
   useEffect(() => {
@@ -173,8 +209,10 @@ export default function ChatShell({
           <div className="flex items-center gap-2">
             {/* Admin Sessions (แสดงเฉพาะใน Widget) */}
             {embedded && (
-              <Link
-                href="/admin/sessions"
+              <button
+                type="button"
+                onClick={enterAdmin}
+                disabled={enteringAdmin}
                 title="Admin Sessions"
                 className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-extrabold"
                 style={{
@@ -182,11 +220,13 @@ export default function ChatShell({
                   background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
                   color: "white",
                   textDecoration: "none",
+                  opacity: enteringAdmin ? 0.7 : 1,
+                  cursor: enteringAdmin ? "not-allowed" : "pointer",
                 }}
               >
                 <Shield className="h-3.5 w-3.5" />
-                Admin
-              </Link>
+                {enteringAdmin ? "Entering…" : "Admin"}
+              </button>
             )}
 
             {/* New chat */}

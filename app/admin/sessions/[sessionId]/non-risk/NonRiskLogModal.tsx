@@ -128,7 +128,6 @@ export function NonRiskLogModal({
               </div>
             </div>
 
-            <div className={styles.chip}>Manual</div>
           </div>
         </div>
 
@@ -197,7 +196,7 @@ export function NonRiskLogModal({
                 className={styles.textarea}
                 value={justification}
                 onChange={(e) => setJustification(e.target.value)}
-                placeholder="ทำไมถึงสรุปว่าเป็นข้อมูลเพื่อรับทราบ (ไม่มีความเสี่ยง) / อ้างอิงข้อเท็จจริง"
+                placeholder="ทำไมถึงสรุปว่าเป็นข้อมูลที่ไม่มีความเสี่ยง"
               />
             </div>
 

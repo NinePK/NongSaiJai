@@ -19,6 +19,30 @@ function toText(v: any) {
   return s ? s : null;
 }
 
+function emailLocalPart(email: string) {
+  const e = String(email || "").trim().toLowerCase();
+  const at = e.indexOf("@");
+  return at > 0 ? e.slice(0, at) : e;
+}
+
+async function resolvePemByEmail(email: string) {
+  const { rows } = await pool.query(
+    `
+    select id::bigint as id, code
+    from public.pem_emp_rules
+    where lower(email) = lower($1)
+    order by direct desc, seq asc, id asc
+    limit 1
+    `,
+    [email.trim().toLowerCase()]
+  );
+  if (!rows?.length) return null;
+  return {
+    id: Number(rows[0].id),
+    code: rows[0].code ? String(rows[0].code).trim() : null,
+  };
+}
+
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   if (!body) return bad("Invalid JSON body");
@@ -63,20 +87,24 @@ export async function POST(req: Request) {
   const isEscalateToManagement = Boolean(body.is_escalate_to_management);
 
   const fromApp = String(body.from_app || "NongSaiJai").trim() || "NongSaiJai";
-  const createdBy = String(body.created_by || "admin").trim() || "admin";
 
-  // Reported by
-  // รองรับ sentinel "risk_teams" (ไม่ใช่ user_code จริง)
-  const rawReportedByUserCode = toText(body.reported_by_user_code);
-  const reportedByFromTable = toText(body.reported_by_from_table);
+  // ✅ NEW: Reported by = email input -> resolve from pem_emp_rules
+  const reportedByEmail = toText(body.reported_by_email);
+  if (!reportedByEmail || !reportedByEmail.includes("@")) {
+    return bad("reported_by_email is required", 400);
+  }
 
-  const reportedByUserCode =
-    rawReportedByUserCode === "risk_teams" ? null : rawReportedByUserCode;
+  const pem = await resolvePemByEmail(reportedByEmail);
+  if (!pem) {
+    return bad(`cannot_resolve_reported_by_in_pem_emp_rules=${reportedByEmail}`, 422);
+  }
 
-  const reportedByFrom =
-    rawReportedByUserCode === "risk_teams"
-      ? "risk_teams"
-      : (reportedByFromTable || null);
+  const reportedById = pem.id; // ✅ pem_emp_rules.id
+  const reportedByUserCode = pem.code; // ✅ pem_emp_rules.code (nullable ok)
+  const reportedByFrom = "pem_emp_rules"; // ✅ fixed
+
+  // ✅ created_by มาจากชื่อหน้า @ ของ email
+  const createdBy = emailLocalPart(reportedByEmail) || "admin";
 
   // Assignee from UI (ถ้ามีให้ใช้ก่อน)
   let assigneeId: number | null =
@@ -217,139 +245,148 @@ export async function POST(req: Request) {
     // ------------------------------------------------------------
     // 4) Insert into mpsmart_issue_logs
     // ------------------------------------------------------------
-const insertRes = await pool.query(
-  `
-  insert into public.mpsmart_issue_logs (
-    project_code,
-    issue_title,
-    description,
-    impact_description,
-    refer_product_case_number,
-    root_cause,
-    resolution,
-    remark,
+    const insertRes = await pool.query(
+      `
+      insert into public.mpsmart_issue_logs (
+        project_code,
+        issue_title,
+        description,
+        impact_description,
+        refer_product_case_number,
+        root_cause,
+        resolution,
+        remark,
 
-    target_date,
-    resolution_date,
-    reported_at,
-    open_date,
+        target_date,
+        resolution_date,
+        reported_at,
+        open_date,
 
-    notify_enabled,
-    is_escalate_to_pmo,
-    is_escalate_to_management,
+        notify_enabled,
+        is_escalate_to_pmo,
+        is_escalate_to_management,
 
-    created_at,
-    created_by,
-    updated_at,
-    updated_by,
+        created_at,
+        created_by,
+        updated_at,
+        updated_by,
 
-    issue_category_id,
-    priority_level_id,
-    status_id,
-    environment_type_id,
-    component_id,
+        issue_category_id,
+        priority_level_id,
+        status_id,
+        environment_type_id,
+        component_id,
 
-    assignee_id,
-    assignee_user_code,
-    assignee_from_table,
+        assignee_id,
+        assignee_user_code,
+        assignee_from_table,
 
-    reported_by_user_code,
-    reported_by_from_table,
+        reported_by_id,
+        reported_by_user_code,
+        reported_by_from_table,
 
-    from_app,
-    session_id
-  )
-  values (
-    $1,$2,$3,$4,$5,$6,$7,$8,
-    $9,$10,$11,$12,
-    $13,$14,$15,
-    now(),$16, now(),$16,
-    $17,$18,$19,$20,$21,
-    $22,$23,$24,
-    $25,$26,
-    $27,$28
-  )
-  on conflict (session_id)
-  do update set
-    project_code              = excluded.project_code,
-    issue_title               = excluded.issue_title,
-    description               = excluded.description,
-    impact_description        = excluded.impact_description,
-    refer_product_case_number = excluded.refer_product_case_number,
-    root_cause                = excluded.root_cause,
-    resolution                = excluded.resolution,
-    remark                    = excluded.remark,
+        from_app,
+        session_id
+      )
+      values (
+        $1,$2,$3,$4,$5,$6,$7,$8,
+        $9,$10,$11,$12,
+        $13,$14,$15,
+        now(),$16, now(),$16,
+        $17,$18,$19,$20,$21,
+        $22,$23,$24,
+        $25,$26,$27,
+        $28,$29
+      )
+      on conflict (session_id)
+      do update set
+        project_code              = excluded.project_code,
+        issue_title               = excluded.issue_title,
+        description               = excluded.description,
+        impact_description        = excluded.impact_description,
+        refer_product_case_number = excluded.refer_product_case_number,
+        root_cause                = excluded.root_cause,
+        resolution                = excluded.resolution,
+        remark                    = excluded.remark,
 
-    target_date               = excluded.target_date,
-    resolution_date           = excluded.resolution_date,
-    reported_at               = excluded.reported_at,
-    open_date                 = excluded.open_date,
+        target_date               = excluded.target_date,
+        resolution_date           = excluded.resolution_date,
+        reported_at               = excluded.reported_at,
+        open_date                 = excluded.open_date,
 
-    notify_enabled            = excluded.notify_enabled,
-    is_escalate_to_pmo        = excluded.is_escalate_to_pmo,
-    is_escalate_to_management = excluded.is_escalate_to_management,
+        notify_enabled            = excluded.notify_enabled,
+        is_escalate_to_pmo        = excluded.is_escalate_to_pmo,
+        is_escalate_to_management = excluded.is_escalate_to_management,
 
-    issue_category_id         = excluded.issue_category_id,
-    priority_level_id         = excluded.priority_level_id,
-    status_id                 = excluded.status_id,
-    environment_type_id       = excluded.environment_type_id,
-    component_id              = excluded.component_id,
+        issue_category_id         = excluded.issue_category_id,
+        priority_level_id         = excluded.priority_level_id,
+        status_id                 = excluded.status_id,
+        environment_type_id       = excluded.environment_type_id,
+        component_id              = excluded.component_id,
 
-    assignee_id               = excluded.assignee_id,
-    assignee_user_code        = excluded.assignee_user_code,
-    assignee_from_table       = excluded.assignee_from_table,
+        assignee_id               = excluded.assignee_id,
+        assignee_user_code        = excluded.assignee_user_code,
+        assignee_from_table       = excluded.assignee_from_table,
 
-    reported_by_user_code     = excluded.reported_by_user_code,
-    reported_by_from_table    = excluded.reported_by_from_table,
+        reported_by_id            = excluded.reported_by_id,
+        reported_by_user_code     = excluded.reported_by_user_code,
+        reported_by_from_table    = excluded.reported_by_from_table,
 
-    from_app                  = excluded.from_app,
+        from_app                  = excluded.from_app,
 
-    updated_at                = now(),
-    updated_by                = $16
-  returning id
-  `,
-  [
-    projectCode,
-    issueTitle,
-    description,
-    impactDescription,
-    referProductCaseNumber,
-    rootCause,
-    resolution,
-    remark,
+        updated_at                = now(),
+        updated_by                = $16
+      returning id
+      `,
+      [
+        projectCode,
+        issueTitle,
+        description,
+        impactDescription,
+        referProductCaseNumber,
+        rootCause,
+        resolution,
+        remark,
 
-    targetDate,
-    resolutionDate,
-    reportedAt,
-    openDate,
+        targetDate,
+        resolutionDate,
+        reportedAt,
+        openDate,
 
-    notifyEnabled,
-    isEscalateToPmo,
-    isEscalateToManagement,
+        notifyEnabled,
+        isEscalateToPmo,
+        isEscalateToManagement,
 
-    createdBy,
+        createdBy,
 
-    issueCategoryId,
-    priorityLevelId,
-    statusId,
-    environmentTypeId,
-    componentId,
+        issueCategoryId,
+        priorityLevelId,
+        statusId,
+        environmentTypeId,
+        componentId,
 
-    assigneeId,
-    assigneeUserCode,
-    assigneeFromTable,
+        assigneeId,
+        assigneeUserCode,
+        assigneeFromTable,
 
-    reportedByUserCode,
-    reportedByFrom,
+        reportedById,
+        reportedByUserCode,
+        reportedByFrom,
 
-    fromApp,
-    sessionId,
-  ]
-);
-
+        fromApp,
+        sessionId,
+      ]
+    );
 
     const id = insertRes.rows?.[0]?.id ?? null;
-    return NextResponse.json({ id });
+    return NextResponse.json({
+      id,
+      reported_by: {
+        email: String(reportedByEmail).trim().toLowerCase(),
+        pem_id: reportedById,
+        pem_code: reportedByUserCode,
+      },
+    });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "DB error" }, { status: 500 });
   }
