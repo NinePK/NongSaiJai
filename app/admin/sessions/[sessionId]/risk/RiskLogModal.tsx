@@ -1,3 +1,4 @@
+// app/admin/sessions/%5BsessionId%5D/risk/RiskLogModal.tsx
 "use client";
 
 import * as React from "react";
@@ -28,33 +29,8 @@ type Props = {
   aiSummary: string;
   onSaved?: () => void;
 };
-function getHashParam(name: string) {
-  const hash = typeof window === "undefined" ? "" : window.location.hash;
-  const s = hash.startsWith("#") ? hash.slice(1) : hash;
-  const params = new URLSearchParams(s);
-  return params.get(name);
-}
 
-function getAccessTokenFromClient(): string | null {
-  try {
-    let t = window.localStorage.getItem("access_token");
-    if (!t) {
-      const fromHash = getHashParam("access_token");
-      if (fromHash) {
-        t = fromHash;
-        window.localStorage.setItem("access_token", fromHash);
-        window.history.replaceState(
-          {},
-          document.title,
-          window.location.pathname,
-        );
-      }
-    }
-    return t;
-  } catch {
-    return null;
-  }
-}
+
 
 export function RiskLogModal({
   open,
@@ -257,14 +233,9 @@ export function RiskLogModal({
     setSaveMsg("");
 
     try {
-      const token = getAccessTokenFromClient();
-
       const res = await fetch(`/api/mpsmart/risk-logs`, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
 

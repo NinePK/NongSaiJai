@@ -1,3 +1,4 @@
+// app/api/mpsmart/risk-logs/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 
@@ -9,7 +10,6 @@ type Payload = {
   risk_description?: string | null;
   impact_description?: string | null;
 
-  // client ส่งมาก็ได้ แต่ server จะ override
   risk_owner_id?: number | null;
   registered_by_id?: number | null;
 
@@ -47,31 +47,40 @@ function isISODate(s: string) {
   return !Number.isNaN(d.getTime());
 }
 
-function pickBearer(req: NextRequest) {
-  const h = req.headers.get("authorization") || "";
-  if (!h.toLowerCase().startsWith("bearer ")) return null;
-  return h.slice(7).trim();
+// ---------- session helpers (เหมือน /api/auth) ----------
+function cookieShouldBeSecure(req: NextRequest) {
+  const xfProto = (req.headers.get("x-forwarded-proto") || "").toLowerCase();
+  const proto = xfProto || req.nextUrl.protocol.replace(":", "").toLowerCase();
+
+  const host = (req.headers.get("host") || "").toLowerCase();
+  const isLocal =
+    host.startsWith("localhost") ||
+    host.startsWith("127.0.0.1") ||
+    host.startsWith("0.0.0.0");
+
+  return proto === "https" && !isLocal;
 }
 
-async function getEmailFromToken(token: string) {
-  const uRes = await fetch("https://hadbapi.mfec.co.th/auth/v1/user", {
-    method: "GET",
-    headers: {
-      apikey: process.env.HADB_API_KEY!,
-      Authorization: `Bearer ${token}`,
-    },
-    cache: "no-store",
-  });
-
-  if (!uRes.ok) return null;
-
-  const user = await uRes.json();
-  const emailRaw: string | null = user?.email ?? user?.user_metadata?.email ?? null;
-  return emailRaw ? String(emailRaw).trim().toLowerCase() : null;
+function readSession(req: NextRequest) {
+  const raw = req.cookies.get("nsj_session")?.value || "";
+  if (!raw) return null;
+  try {
+    const s = Buffer.from(raw, "base64url").toString("utf8");
+    const j = JSON.parse(s);
+    return j && typeof j === "object" ? j : null;
+  } catch {
+    return null;
+  }
 }
 
+function normalizeEmail(v: any) {
+  const s = typeof v === "string" ? v : "";
+  const e = s.trim().toLowerCase();
+  return e && e.includes("@") ? e : null;
+}
+
+// ---------- resolve user via pem_emp_rules (เหมือน ISSUE) ----------
 async function getPemCodeByEmail(email: string) {
-  // code ใน pem_emp_rules = user_code ของคนนี้ (ตาม requirement ของคุณ)
   const { rows } = await pool.query(
     `
     select code
@@ -82,26 +91,26 @@ async function getPemCodeByEmail(email: string) {
     order by seq asc, id asc
     limit 1
     `,
-    [email]
+    [email.toLowerCase()]
   );
   const code = rows?.[0]?.code ? String(rows[0].code).trim() : null;
   return code && code.length ? code : null;
 }
 
 async function getPmTeamByUserCode(userCode: string) {
-  // ✅ เปลี่ยนชื่อ table/column ให้ตรง DB จริงของคุณถ้าไม่ใช่ pm_teams
   const { rows } = await pool.query(
     `
     select id::bigint as id, user_code
     from public.pm_teams
-    where user_code = $1
+    where trim(user_code) = $1
+    order by id desc
     limit 1
     `,
-    [userCode]
+    [userCode.trim()]
   );
 
   if (!rows?.length) return null;
-  return { id: Number(rows[0].id), user_code: String(rows[0].user_code) };
+  return { id: Number(rows[0].id), user_code: String(rows[0].user_code).trim() };
 }
 
 export async function POST(req: NextRequest) {
@@ -109,23 +118,21 @@ export async function POST(req: NextRequest) {
     const body = (await req.json().catch(() => null)) as Payload | null;
     if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
-    // ✅ ต้องมี token เพื่อ map user -> pem code -> pm_teams
-    const token = pickBearer(req);
-    if (!token) {
-      return NextResponse.json({ error: "missing_authorization_token" }, { status: 401 });
-    }
+    // ✅ ใช้ session cookie แทน Bearer token
+    const sess = readSession(req);
+    const email =
+      normalizeEmail(sess?.email) ||
+      normalizeEmail(sess?.user?.email) ||
+      normalizeEmail(sess?.user_metadata?.email);
 
-    const email = await getEmailFromToken(token);
     if (!email) {
-      return NextResponse.json({ error: "invalid_token_or_missing_email" }, { status: 401 });
+      return NextResponse.json({ error: "no_session" }, { status: 401 });
     }
 
+    // map email -> pem code -> pm_teams
     const pemCode = await getPemCodeByEmail(email);
     if (!pemCode) {
-      return NextResponse.json(
-        { error: "missing_pem_code_for_user", email },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: "missing_pem_code_for_user", email }, { status: 403 });
     }
 
     const pm = await getPmTeamByUserCode(pemCode);
@@ -209,7 +216,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "closed_date must be ISO date" }, { status: 400 });
     }
 
-    // ✅ สำคัญ: risk_category_id = code (1..10)
+    // ✅ risk_category_id = code (1..10)
     const riskCategoryId = catCode;
 
     const q = `
@@ -314,9 +321,10 @@ export async function POST(req: NextRequest) {
     ];
 
     const { rows } = await pool.query(q, values);
+
     return NextResponse.json({
       ok: true,
-      id: rows?.[0]?.id,
+      id: rows?.[0]?.id ?? null,
       email,
       pem_code: pemCode,
       pm_team_id: pm.id,

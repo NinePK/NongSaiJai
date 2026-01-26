@@ -1,21 +1,23 @@
+// components/chat/ChatShell.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import MessageList, { ChatMessage } from "@/components/chat/MessageList";
 import Composer from "@/components/chat/Composer";
-import Link from "next/link";
 import { Shield } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
+
+// ✅ ใช้ ENV
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ;
 
 function uid() {
   return Math.random().toString(16).slice(2) + Date.now().toString(16);
 }
 
 const SESSION_KEY = "nongsai_session_id";
-// เก็บข้อความแยกตาม session
 const HISTORY_PREFIX = "nongsai_history:";
 
-
+// ... (เก็บ functions เดิม: getOrCreateSessionId, historyKey, loadHistory, saveHistory)
 
 function getOrCreateSessionId() {
   if (typeof window === "undefined") return uuidv4();
@@ -39,7 +41,6 @@ function loadHistory(sessionId: string): ChatMessage[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    // basic validation
     return parsed
       .filter(
         (x) =>
@@ -61,7 +62,6 @@ function loadHistory(sessionId: string): ChatMessage[] {
 function saveHistory(sessionId: string, messages: ChatMessage[]) {
   if (typeof window === "undefined") return;
   try {
-    // จำกัดขนาดเพื่อกัน localStorage บวม (เก็บ 200 ข้อความล่าสุด)
     const trimmed = messages.slice(-200);
     localStorage.setItem(historyKey(sessionId), JSON.stringify(trimmed));
   } catch {
@@ -81,52 +81,59 @@ export default function ChatShell({
   const [pending, setPending] = useState(false);
   const [enteringAdmin, setEnteringAdmin] = useState(false);
 
-async function enterAdmin() {
-  try {
-    setEnteringAdmin(true);
+  async function enterAdmin() {
+    try {
+      setEnteringAdmin(true);
 
-    // ✅ เช็ค session จาก cookie (auth + authz รวม)
-    const r = await fetch("/api/auth", { cache: "no-store" });
+      // ✅ เช็ค session จาก cookie (auth + authz รวม)
+      const r = await fetch("/api/auth", { cache: "no-store" });
 
-    const ct = r.headers.get("content-type") || "";
-    if (!ct.includes("application/json")) {
-      const t = await r.text();
-      alert(`เข้า Admin ไม่ได้ (HTTP ${r.status})\n${t.slice(0, 200)}...`);
-      return;
+      const ct = r.headers.get("content-type") || "";
+      if (!ct.includes("application/json")) {
+        const t = await r.text();
+        alert(`เข้า Admin ไม่ได้ (HTTP ${r.status})\n${t.slice(0, 200)}...`);
+        return;
+      }
+
+      const j = await r.json().catch(() => null);
+
+      if (!r.ok || !j?.ok) {
+        alert(`เข้า Admin ไม่ได้ (HTTP ${r.status})\n${JSON.stringify(j)}`);
+        return;
+      }
+
+      if (!j.isAdmin) {
+        alert("คุณไม่มีสิทธิ์เข้า Admin");
+        return;
+      }
+
+      // ✅ ถ้าอยู่ใน embedded mode (iframe) ให้บอก parent
+      if (embedded && window.parent !== window) {
+        window.parent.postMessage(
+          { 
+            type: "NSJ_OPEN_ADMIN",
+            url: `${BASE_URL}/admin/sessions`
+          },
+          "*"
+        );
+      } else {
+        // ✅ ถ้าไม่ได้อยู่ใน iframe ให้เปิดปกติ
+        window.location.href = "/admin/sessions";
+      }
+    } finally {
+      setEnteringAdmin(false);
     }
-
-    const j = await r.json().catch(() => null);
-
-    if (!r.ok || !j?.ok) {
-      alert(`เข้า Admin ไม่ได้ (HTTP ${r.status})\n${JSON.stringify(j)}`);
-      return;
-    }
-
-    if (!j.isAdmin) {
-      alert("คุณไม่มีสิทธิ์เข้า Admin");
-      return;
-    }
-
-    // ✅ ผ่านแล้ว
-    window.location.href = "/admin/sessions";
-  } finally {
-    setEnteringAdmin(false);
   }
-}
 
-  // Persist messages ทุกครั้งที่เปลี่ยน (เพื่อไม่ให้หายเมื่อปิด modal)
+  // Persist messages ทุกครั้งที่เปลี่ยน
   useEffect(() => {
     saveHistory(sessionId, messages);
   }, [sessionId, messages]);
 
   function startNewChat() {
-    // ล้าง session + ล้าง history ของ session เดิม
     localStorage.removeItem(historyKey(sessionId));
     localStorage.removeItem(SESSION_KEY);
-
-    // reset UI
     setMessages([]);
-    // รีโหลดเพื่อให้ session ใหม่ถูกสร้างและใช้ต่อทันที
     window.location.reload();
   }
 
@@ -141,7 +148,6 @@ async function enterAdmin() {
     setPending(true);
 
     try {
-      // ส่ง history ไปด้วย (ตามที่คุณทำอยู่)
       const history = nextMessages.map((x) => ({
         role: x.role,
         content: x.content,
@@ -151,9 +157,8 @@ async function enterAdmin() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          // ถ้าคุณใช้ n8n แนะนำส่ง session_id ให้เป็นชื่อเดียวกัน
           session_id: sessionId,
-          conversation_id: sessionId, // เผื่อระบบเดิมยังอ่าน conversation_id
+          conversation_id: sessionId,
           message: content,
           history,
           meta: { tz: "Asia/Bangkok", client: "nextjs-app-router" },

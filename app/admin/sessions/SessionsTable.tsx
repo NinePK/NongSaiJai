@@ -157,6 +157,7 @@ function SessionRowItem({
               aria-label="Unopened by admin"
             />
           )}
+          
 
           <span
             className={styles.statusIconWrap}

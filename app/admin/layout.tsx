@@ -37,13 +37,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
             <div className="topbar__brand">Nong Sai Jai</div>
           </div>
-
-          <div className="topbar__right">
-            <a href="#" className="topbar__action" aria-label="Re-login">
-              Re-login
-            </a>
-            <ThemeToggle />
-          </div>
         </div>
       </header>
 
