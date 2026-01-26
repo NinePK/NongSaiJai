@@ -10,21 +10,19 @@ const ChatShellNoSSR = dynamic(() => import("@/components/chat/ChatShell"), {
 
 type AuthState = "idle" | "loading" | "ok" | "error";
 
-// ✅ ใช้ ENV
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ;
 
+// ✅ เพิ่ม UAT origins
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:5500",
   "http://127.0.0.1:5500",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
-  "http://10.6.100.128:3002/",
-  "https://uat-msync.mfec.co.th/",
-  "https://msync.mfec.co.th", // เพิ่ม production origin
+  "https://uat-msync.mfec.co.th",  // ✅ เพิ่ม
+  "https://msync.mfec.co.th",
 ]);
 
 async function exchangeToken(token: string) {
-  // ✅ ใช้ relative path ก็ได้ เพราะอยู่ใน Next.js เดียวกัน
   const res = await fetch("/api/auth", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -49,17 +47,17 @@ export default function ChatEmbedPage() {
     setReady(true);
 
     const handleMessage = async (ev: MessageEvent) => {
-
       if (!ALLOWED_ORIGINS.has(ev.origin)) {
-        console.warn("❌ ปฏิเสธ origin:", ev.origin);
-        console.warn("✅ origins ที่อนุญาต:", Array.from(ALLOWED_ORIGINS));
         return;
       }
 
       const { type, token } = ev.data || {};
+      
+      if (type !== "NSJ_TOKEN") {
+        return;
+      }
 
       if (!token || typeof token !== "string" || token.length < 10) {
-        console.error("❌ Token ไม่ถูกต้อง");
         setAuthState("error");
         setErrorMsg("ไม่พบ Token หรือ Token ไม่ถูกต้อง");
         
@@ -73,12 +71,10 @@ export default function ChatEmbedPage() {
       }
 
       try {
-        console.log("🔄 กำลังแลก token...");
         setAuthState("loading");
         setErrorMsg("");
 
         const result = await exchangeToken(token);
-        console.log("✅ แลก token สำเร็จ:", result);
 
         setAuthState("ok");
 
@@ -88,7 +84,6 @@ export default function ChatEmbedPage() {
         );
       } catch (e: unknown) {
         const errorMessage = e instanceof Error ? e.message : "เกิดข้อผิดพลาด";
-        console.error("❌ แลก token ล้มเหลว:", e);
         setAuthState("error");
         setErrorMsg(errorMessage);
 
@@ -100,7 +95,6 @@ export default function ChatEmbedPage() {
     };
 
     window.addEventListener("message", handleMessage);
-
     window.parent.postMessage({ type: "NSJ_EMBED_READY" }, "*");
 
     return () => window.removeEventListener("message", handleMessage);
@@ -116,8 +110,6 @@ export default function ChatEmbedPage() {
       padding: 0,
       background: "var(--card, #fff)"
     }}>
-
-
       {authState === "loading" && (
         <div style={{ 
           display: "flex", 

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>น้องใส่ใจ</title>
   <style>
-    body { margin: 0; padding: 0; background: #fff; }
+    body { margin: 0; padding: 0; }
     
     #nsjOverlay {
       position: fixed;
@@ -75,35 +75,42 @@
   <iframe id="nsjFrame" frameborder="0"></iframe>
 
   <script>
-    // 🔧 Config: เปลี่ยนแค่ตรงนี้
-    const BASE_URL = 'http://localhost:3000';
-    const TOKEN_KEY = 'nsj_demo_token';
+    // ✅ Config: แก้ตรงนี้ตาม environment
+    const CONFIG = {
+      // Development
+       baseUrl: 'http://localhost:3000',
+      
+      // UAT
+      //baseUrl: 'http://10.6.100.128:3002',
+      
+      // Production
+      // baseUrl: 'https://msync.mfec.co.th',
+      
+      tokenKey: 'nsj_access_token'
+    };
 
     const btn = document.getElementById('nsjButton');
     const frame = document.getElementById('nsjFrame');
     const overlay = document.getElementById('nsjOverlay');
     let isOpen = false;
 
-    // ตั้งค่า iframe
-    frame.src = BASE_URL + '/chat/embed';
+    frame.src = CONFIG.baseUrl + '/chat/embed';
 
-    // ดึง token
     function getToken() {
       const hash = new URLSearchParams(window.location.hash.slice(1));
       const query = new URLSearchParams(window.location.search);
       const hashToken = hash.get('access_token') || hash.get('token');
       const queryToken = query.get('access_token') || query.get('token');
-      const stored = localStorage.getItem(TOKEN_KEY);
+      const stored = localStorage.getItem(CONFIG.tokenKey);
       const token = hashToken || queryToken || stored || '';
       
       if (token && !stored) {
-        localStorage.setItem(TOKEN_KEY, token);
+        localStorage.setItem(CONFIG.tokenKey, token);
       }
       
       return token;
     }
 
-    // Toggle แชท
     function toggle() {
       isOpen = !isOpen;
       
@@ -115,11 +122,9 @@
           return;
         }
         
-        // ✨ แสดง overlay และ frame ก่อน
         overlay.style.display = 'block';
         frame.style.display = 'block';
         
-        // ✨ รอ 1 frame แล้วค่อยเพิ่ม class (ทำให้ transition ทำงาน)
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             overlay.classList.add('open');
@@ -130,15 +135,13 @@
         setTimeout(() => {
           frame.contentWindow.postMessage(
             { type: 'NSJ_TOKEN', token: token },
-            BASE_URL
+            CONFIG.baseUrl
           );
         }, 300);
       } else {
-        // ✨ ลบ class ก่อน (animation ทำงาน)
         overlay.classList.remove('open');
         frame.classList.remove('open');
         
-        // ✨ รอ animation เสร็จ (220ms) แล้วค่อยซ่อน
         setTimeout(() => {
           overlay.style.display = 'none';
           frame.style.display = 'none';
@@ -149,14 +152,12 @@
     btn.onclick = toggle;
     overlay.onclick = toggle;
 
-    // ESC ปิด
     document.onkeydown = (e) => {
       if (e.key === 'Escape' && isOpen) toggle();
     };
 
-    // รับ message จาก iframe
     window.onmessage = (e) => {
-      if (e.origin !== BASE_URL) return;
+      if (e.origin !== CONFIG.baseUrl) return;
       if (e.data?.type === 'NSJ_OPEN_ADMIN' && e.data?.url) {
         window.location.href = e.data.url;
       }

@@ -25,9 +25,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <>
       <header className="topbar" role="banner">
         <div className="topbar__inner">
+          {/* ซ้าย */}
           <div className="topbar__left">
             <Link
-              href="/"
+              href="https://uat-msync.mfec.co.th/"
               className="topbar__home"
               aria-label="Back to Home"
               title="Back to Home"
@@ -36,6 +37,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </Link>
 
             <div className="topbar__brand">Nong Sai Jai</div>
+          </div>
+
+          {/* ขวา */}
+          <div className="topbar__right">
+            <ThemeToggle />
           </div>
         </div>
       </header>

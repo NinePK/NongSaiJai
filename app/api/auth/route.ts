@@ -80,25 +80,25 @@ async function isAdminByPemRules(email: string) {
 }
 
 function setCookies(res: NextResponse, req: NextRequest, payload: any) {
-  const secure = cookieShouldBeSecure(req);
   const session = Buffer.from(JSON.stringify(payload)).toString("base64url");
 
   res.cookies.set("nsj_session", session, {
     httpOnly: true,
-    secure,
-    sameSite: "lax",
+    secure: true,        // ✅ HTTPS เท่านั้น
+    sameSite: "none",    // ✅ iframe cross-origin
     path: "/",
     maxAge: 60 * 60,
   });
 
   res.cookies.set("nsj_admin", payload.isAdmin ? "1" : "0", {
     httpOnly: true,
-    secure,
-    sameSite: "lax",
+    secure: true,
+    sameSite: "none",
     path: "/",
     maxAge: 60 * 60,
   });
 }
+
 
 function clearCookies(res: NextResponse, req: NextRequest) {
   const secure = cookieShouldBeSecure(req);
