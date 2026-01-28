@@ -338,7 +338,7 @@ export default async function AdminSessionDetailPage({
       style={{
         minHeight: "100vh",
         background:
-          "radial-gradient(1200px 600px at 20% -10%, var(--bg-grad-1), transparent 55%), radial-gradient(900px 500px at 90% 10%, var(--bg-grad-2), transparent 60%), var(--bg)",
+          "radial-gradient(100px 600px at 20% -10%, var(--bg-grad-1), transparent 55%), radial-gradient(900px 500px at 90% 10%, var(--bg-grad-2), transparent 60%), var(--bg)",
         color: "var(--text)",
         padding: 24,
       }}

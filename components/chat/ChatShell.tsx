@@ -8,7 +8,7 @@ import { Shield } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 
 // ✅ ใช้ ENV
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ;
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL;
 
 function uid() {
   return Math.random().toString(16).slice(2) + Date.now().toString(16);
@@ -16,8 +16,6 @@ function uid() {
 
 const SESSION_KEY = "nongsai_session_id";
 const HISTORY_PREFIX = "nongsai_history:";
-
-// ... (เก็บ functions เดิม: getOrCreateSessionId, historyKey, loadHistory, saveHistory)
 
 function getOrCreateSessionId() {
   if (typeof window === "undefined") return uuidv4();
@@ -80,6 +78,7 @@ export default function ChatShell({
   );
   const [pending, setPending] = useState(false);
   const [enteringAdmin, setEnteringAdmin] = useState(false);
+  const [canSeeAdmin, setCanSeeAdmin] = useState(false);
 
   async function enterAdmin() {
     try {
@@ -110,11 +109,11 @@ export default function ChatShell({
       // ✅ ถ้าอยู่ใน embedded mode (iframe) ให้บอก parent
       if (embedded && window.parent !== window) {
         window.parent.postMessage(
-          { 
+          {
             type: "NSJ_OPEN_ADMIN",
-            url: `${BASE_URL}/admin/sessions`
+            url: `${BASE_URL}/admin/sessions`,
           },
-          "*"
+          "*",
         );
       } else {
         // ✅ ถ้าไม่ได้อยู่ใน iframe ให้เปิดปกติ
@@ -124,6 +123,33 @@ export default function ChatShell({
       setEnteringAdmin(false);
     }
   }
+  useEffect(() => {
+    if (!embedded) return; // เช็คเฉพาะใน widget
+
+    let alive = true;
+
+    async function checkAdmin() {
+      try {
+        const r = await fetch("/api/auth", { cache: "no-store" });
+        const ct = r.headers.get("content-type") || "";
+        if (!ct.includes("application/json")) return;
+
+        const j = await r.json().catch(() => null);
+        if (!alive) return;
+
+        setCanSeeAdmin(!!(r.ok && j?.ok && j?.isAdmin));
+      } catch {
+        if (!alive) return;
+        setCanSeeAdmin(false);
+      }
+    }
+
+    checkAdmin();
+
+    return () => {
+      alive = false;
+    };
+  }, [embedded]);
 
   // Persist messages ทุกครั้งที่เปลี่ยน
   useEffect(() => {
@@ -213,7 +239,7 @@ export default function ChatShell({
 
           <div className="flex items-center gap-2">
             {/* Admin Sessions (แสดงเฉพาะใน Widget) */}
-            {embedded && (
+            {embedded && canSeeAdmin && (
               <button
                 type="button"
                 onClick={enterAdmin}

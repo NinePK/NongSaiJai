@@ -1,167 +1,297 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="th">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>น้องใส่ใจ</title>
-  <style>
-    body { margin: 0; padding: 0; }
-    
-    #nsjOverlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.28);
-      backdrop-filter: blur(6px);
-      z-index: 9998;
-      display: none;
-      opacity: 0;
-      transition: opacity 0.22s;
-    }
-    #nsjOverlay.open { display: block; opacity: 1; }
-    
-    #nsjButton {
-      position: fixed;
-      right: 18px;
-      bottom: 18px;
-      width: 54px;
-      height: 54px;
-      border-radius: 50%;
-      border: none;
-      background: linear-gradient(135deg, #6366f1, #8b5cf6);
-      color: white;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 8px 24px rgba(99,102,241,0.4);
-      z-index: 10000;
-      transition: transform 0.18s;
-    }
-    #nsjButton:hover { transform: scale(1.05); }
-    
-    #nsjFrame {
-      position: fixed;
-      right: 18px;
-      bottom: 86px;
-      width: 420px;
-      height: 620px;
-      max-width: calc(100vw - 36px);
-      max-height: calc(100vh - 120px);
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 18px;
-      box-shadow: 0 30px 90px rgba(0,0,0,0.45);
-      z-index: 9999;
-      display: none;
-      opacity: 0;
-      transform: translateY(14px) scale(0.98);
-      transition: opacity 0.22s, transform 0.22s;
-    }
-    #nsjFrame.open {
-      display: block;
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
-  </style>
-</head>
-<body>
-  <div id="nsjOverlay"></div>
-  
-  <button id="nsjButton">
-    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-    </svg>
-  </button>
-  
-  <iframe id="nsjFrame" frameborder="0"></iframe>
-
-  <script>
-    // ✅ Config: แก้ตรงนี้ตาม environment
-    const CONFIG = {
-      // Development
-       baseUrl: 'http://localhost:3000',
-      
-      // UAT
-      //baseUrl: 'http://10.6.100.128:3002',
-      
-      // Production
-      // baseUrl: 'https://msync.mfec.co.th',
-      
-      tokenKey: 'nsj_access_token'
-    };
-
-    const btn = document.getElementById('nsjButton');
-    const frame = document.getElementById('nsjFrame');
-    const overlay = document.getElementById('nsjOverlay');
-    let isOpen = false;
-
-    frame.src = CONFIG.baseUrl + '/chat/embed';
-
-    function getToken() {
-      const hash = new URLSearchParams(window.location.hash.slice(1));
-      const query = new URLSearchParams(window.location.search);
-      const hashToken = hash.get('access_token') || hash.get('token');
-      const queryToken = query.get('access_token') || query.get('token');
-      const stored = localStorage.getItem(CONFIG.tokenKey);
-      const token = hashToken || queryToken || stored || '';
-      
-      if (token && !stored) {
-        localStorage.setItem(CONFIG.tokenKey, token);
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>NSJ Chat Button</title>
+    <style>
+      :root {
+        --nsj-z-overlay: 9998;
+        --nsj-z-frame: 9999;
+        --nsj-z-btn: 10000;
       }
-      
-      return token;
-    }
 
-    function toggle() {
-      isOpen = !isOpen;
-      
-      if (isOpen) {
-        const token = getToken();
-        if (!token) {
-          alert('กรุณาเข้าสู่ระบบก่อน');
-          isOpen = false;
+      /* หน้านี้ “ตั้งใจให้โล่ง” */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+      }
+
+      /* Overlay */
+      #nsjOverlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.28);
+        backdrop-filter: blur(6px);
+        z-index: var(--nsj-z-overlay);
+        display: none;
+        opacity: 0;
+        transition: opacity 0.22s ease;
+      }
+      #nsjOverlay.open {
+        display: block;
+        opacity: 1;
+      }
+
+      /* Iframe */
+      #nsjFrame {
+        position: fixed;
+        right: 18px;
+        bottom: 86px;
+        width: 420px;
+        height: 620px;
+        max-width: calc(100vw - 36px);
+        max-height: calc(100vh - 120px);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 18px;
+        box-shadow: 0 30px 90px rgba(0, 0, 0, 0.45);
+        z-index: var(--nsj-z-frame);
+        display: none;
+        opacity: 0;
+        transform: translateY(14px) scale(0.98);
+        transition: opacity 0.22s ease, transform 0.22s ease;
+        background: transparent;
+      }
+      #nsjFrame.open {
+        display: block;
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+
+      /* Floating Button */
+      #nsjButton {
+        position: fixed;
+        right: 18px;
+        bottom: 18px;
+        width: 54px;
+        height: 54px;
+        border-radius: 999px;
+        border: none;
+        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        color: #fff;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 8px 24px rgba(99, 102, 241, 0.4);
+        z-index: var(--nsj-z-btn);
+        transition: transform 0.18s ease, filter 0.18s ease;
+        user-select: none;
+      }
+      #nsjButton:hover {
+        transform: scale(1.05);
+        filter: brightness(1.05);
+      }
+      #nsjButton:active {
+        transform: scale(0.98);
+      }
+
+      /* Mobile */
+      @media (max-width: 480px) {
+        #nsjFrame {
+          right: 10px;
+          bottom: 78px;
+          width: calc(100vw - 20px);
+          height: min(680px, calc(100vh - 110px));
+        }
+        #nsjButton {
+          right: 12px;
+          bottom: 12px;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="nsjOverlay" aria-hidden="true"></div>
+
+    <button id="nsjButton" type="button" aria-label="เปิดแชทน้องใส่ใจ">
+      <!-- chat bubble icon -->
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path
+          d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10Z"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </button>
+
+    <iframe id="nsjFrame" title="น้องใส่ใจ" frameborder="0" allow="clipboard-read; clipboard-write"></iframe>
+
+    <script>
+      // =========================
+      // CONFIG (แก้แค่นี้)
+      // =========================
+      const CONFIG = {
+        // ✅ Production NongSaiJai
+        baseUrl: "https://mfec_nongsaijai.mfec.co.th",
+
+        // เก็บ token ไว้ฝั่ง landing page (parent) เท่านั้น
+        tokenKey: "nsj_access_token",
+
+        // ความปลอดภัย: อนุญาต origin ของ iframe ที่จะรับ message
+        // (ปกติ = baseUrl)
+        iframeOrigin: "https://mfec_nongsaijai.mfec.co.th",
+      };
+
+      const btn = document.getElementById("nsjButton");
+      const frame = document.getElementById("nsjFrame");
+      const overlay = document.getElementById("nsjOverlay");
+
+      let isOpen = false;
+      let embedReady = false;
+      let pendingTokenToSend = null;
+
+      // ตั้ง src ของ iframe
+      frame.src = CONFIG.baseUrl + "/chat/embed";
+
+      // =========================
+      // Token handling (parent)
+      // =========================
+      function pickToken() {
+        const hash = new URLSearchParams((window.location.hash || "").replace(/^#/, ""));
+        const query = new URLSearchParams(window.location.search || "");
+
+        const hashToken = hash.get("access_token") || hash.get("token") || hash.get("t");
+        const queryToken = query.get("access_token") || query.get("token") || query.get("t");
+
+        const stored = localStorage.getItem(CONFIG.tokenKey);
+        const token = (hashToken || queryToken || stored || "").trim();
+
+        if (token && token !== stored) {
+          try {
+            localStorage.setItem(CONFIG.tokenKey, token);
+          } catch {}
+        }
+
+        return token;
+      }
+
+      // =========================
+      // UI open/close
+      // =========================
+      function openChat() {
+        const token = pickToken();
+        if (!token || token.length < 10) {
+          alert("ไม่พบ Token กรุณาเข้าสู่ระบบก่อน");
           return;
         }
-        
-        overlay.style.display = 'block';
-        frame.style.display = 'block';
-        
+
+        isOpen = true;
+        pendingTokenToSend = token;
+
+        overlay.style.display = "block";
+        frame.style.display = "block";
+
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            overlay.classList.add('open');
-            frame.classList.add('open');
+            overlay.classList.add("open");
+            frame.classList.add("open");
           });
         });
-        
+
+        // ถ้า iframe ready แล้ว ส่งทันที
+        if (embedReady) {
+          sendTokenToIframe(token);
+        } else {
+          // ถ้ายังไม่ ready ให้รอ event NSJ_EMBED_READY
+          // และกันกรณีบาง browser โหลดช้า: ยิงซ้ำหลัง 500ms
+          setTimeout(() => {
+            if (isOpen && embedReady && pendingTokenToSend) {
+              sendTokenToIframe(pendingTokenToSend);
+            }
+          }, 500);
+        }
+      }
+
+      function closeChat() {
+        isOpen = false;
+        pendingTokenToSend = null;
+
+        overlay.classList.remove("open");
+        frame.classList.remove("open");
+
         setTimeout(() => {
-          frame.contentWindow.postMessage(
-            { type: 'NSJ_TOKEN', token: token },
-            CONFIG.baseUrl
-          );
-        }, 300);
-      } else {
-        overlay.classList.remove('open');
-        frame.classList.remove('open');
-        
-        setTimeout(() => {
-          overlay.style.display = 'none';
-          frame.style.display = 'none';
+          if (!isOpen) {
+            overlay.style.display = "none";
+            frame.style.display = "none";
+          }
         }, 220);
       }
-    }
 
-    btn.onclick = toggle;
-    overlay.onclick = toggle;
-
-    document.onkeydown = (e) => {
-      if (e.key === 'Escape' && isOpen) toggle();
-    };
-
-    window.onmessage = (e) => {
-      if (e.origin !== CONFIG.baseUrl) return;
-      if (e.data?.type === 'NSJ_OPEN_ADMIN' && e.data?.url) {
-        window.location.href = e.data.url;
+      function toggleChat() {
+        if (isOpen) closeChat();
+        else openChat();
       }
-    };
-  </script>
-</body>
+
+      // =========================
+      // postMessage
+      // =========================
+      function sendTokenToIframe(token) {
+        try {
+          frame.contentWindow.postMessage(
+            { type: "NSJ_TOKEN", token },
+            CONFIG.iframeOrigin
+          );
+        } catch (e) {
+          console.warn("postMessage failed:", e);
+        }
+      }
+
+      // =========================
+      // Event bindings
+      // =========================
+      btn.addEventListener("click", toggleChat);
+      overlay.addEventListener("click", closeChat);
+
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && isOpen) closeChat();
+      });
+
+      // รับ message จาก iframe
+      window.addEventListener("message", (e) => {
+        // security: รับเฉพาะจาก iframe origin
+        if (e.origin !== CONFIG.iframeOrigin) return;
+
+        const data = e.data || {};
+        if (data.type === "NSJ_EMBED_READY") {
+          embedReady = true;
+          if (isOpen && pendingTokenToSend) {
+            sendTokenToIframe(pendingTokenToSend);
+          }
+          return;
+        }
+
+        if (data.type === "NSJ_AUTH_OK") {
+          // ถ้าต้องการ log เฉย ๆ
+          // console.log("NSJ auth ok");
+          return;
+        }
+
+        if (data.type === "NSJ_AUTH_ERROR") {
+          console.warn("NSJ auth error:", data.data);
+          // ปิด chat หรือแสดง error ก็ได้
+          // closeChat();
+          return;
+        }
+
+        // กรณีเปิด admin จากใน widget (ถ้าคุณใช้)
+        if (data.type === "NSJ_OPEN_ADMIN" && data.url) {
+          window.location.href = data.url;
+        }
+      });
+
+      // ยิง ping บอก iframe ว่า parent พร้อม (optional)
+      // (บางทีมคุณอยากให้ iframe รู้ว่า parent active แล้ว)
+      function pingEmbed() {
+        try {
+          frame.contentWindow.postMessage({ type: "NSJ_PARENT_READY" }, CONFIG.iframeOrigin);
+        } catch {}
+      }
+      setTimeout(pingEmbed, 400);
+    </script>
+  </body>
 </html>
