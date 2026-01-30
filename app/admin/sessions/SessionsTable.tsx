@@ -7,7 +7,7 @@ import {
   MoreHorizontal,
   Send,
 
-  // Status (ถ้าคุณแก้ตามที่คุยไว้ก่อนหน้า)
+  // Status
   AlertTriangle,
   AlertCircle,
   HelpCircle,
@@ -20,7 +20,7 @@ import {
   Target,
   CircleDollarSign,
 
-  // อื่นๆ
+  // Other
   ShieldQuestion,
 } from "lucide-react";
 
@@ -71,6 +71,9 @@ export type SessionRow = {
   mpsmart_sent_at: string | null;
 
   is_admin_opened: boolean;
+
+  // ✅ IMPORTANT: ต้องมีใน view v_ai_session_admin (คุณมีแล้ว)
+  override_notes?: string | null;
 };
 
 const statusConfig = {
@@ -97,12 +100,12 @@ const statusConfig = {
 } as const;
 
 const categoryIcons: Record<string, any> = {
-  People: Users, // คน/ทีม
-  Process: Workflow, // ขั้นตอน/กระบวนการ
-  Quality: BadgeCheck, // คุณภาพ/มาตรฐาน
-  Financial: CircleDollarSign, // เงิน/งบประมาณ
-  Scope: Target, // ขอบเขต/เป้าหมาย
-  Unknown: HelpCircle, // ไม่ระบุ
+  People: Users,
+  Process: Workflow,
+  Quality: BadgeCheck,
+  Financial: CircleDollarSign,
+  Scope: Target,
+  Unknown: HelpCircle,
 };
 
 function fmtTS(v?: string | null) {
@@ -126,6 +129,57 @@ function getSummary(s: SessionRow) {
   return (s.ai_summary?.trim() || s.last_message_snippet || "—").trim();
 }
 
+type ConcernNote = {
+  kind?: string; // "CONCERN"
+  targets?: Array<{
+    scope?: string; // PM / PROJECT_TEAM / BACKOFFICE / ...
+    team_code?: string; // IT_SUPPORT / LEGAL / ...
+    team_label?: string; // ทีม IT / ทีมกฎหมาย
+  }>;
+  target?: {
+    scope?: string;
+    team_code?: string;
+    team_label?: string;
+  };
+};
+
+function safeParseConcernNote(raw?: string | null): ConcernNote | null {
+  if (!raw) return null;
+  try {
+    const j = JSON.parse(raw);
+    if (!j || typeof j !== "object") return null;
+    return j as ConcernNote;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ✅ rule:
+ * - ถ้า scope != BACKOFFICE => แสดง scope (PM / CUSTOMER / VENDOR ...)
+ * - ถ้า scope == BACKOFFICE => แสดง team_code ถ้ามี ไม่งั้น team_label (เช่น "LEGAL" / "IT_SUPPORT")
+ */
+function getConcernTargetLabel(s: SessionRow): string | null {
+  const status = getStatus(s);
+  if (status !== "CONCERN") return null;
+
+  const note = safeParseConcernNote(s.override_notes);
+  if (!note || note.kind !== "CONCERN") return null;
+
+  const t = note.target ?? note.targets?.[0];
+  if (!t) return null;
+
+  const scope = (t.scope || "").trim();
+  if (!scope) return null;
+
+  if (scope === "BACKOFFICE") {
+    const team = (t.team_code || t.team_label || "").trim();
+    return team || "BACKOFFICE";
+  }
+
+  return scope;
+}
+
 function SessionRowItem({
   s,
   idx,
@@ -142,11 +196,11 @@ function SessionRowItem({
   const category = getCategory(s);
   const CatIcon = categoryIcons[category] || categoryIcons.Unknown;
 
+  const concernTarget = getConcernTargetLabel(s);
+
   return (
     <TableRow className={styles.tr} onClick={() => onOpenSession(s.session_id)}>
-      <TableCell className={`${styles.td} ${styles.noCell}`}>
-        {idx + 1}
-      </TableCell>
+      <TableCell className={`${styles.td} ${styles.noCell}`}>{idx + 1}</TableCell>
 
       <TableCell className={`${styles.td} ${styles.statusCell}`}>
         <div className={styles.statusTopRow}>
@@ -157,7 +211,6 @@ function SessionRowItem({
               aria-label="Unopened by admin"
             />
           )}
-          
 
           <span
             className={styles.statusIconWrap}
@@ -171,6 +224,17 @@ function SessionRowItem({
             <CatIcon className="h-5 w-5" />
             <span>{category}</span>
           </span>
+
+          {/* ✅ NEW: Concern target pill (ขึ้นบรรทัดใหม่ได้เพราะ flex-wrap) */}
+          {concernTarget && (
+            <span
+              className={styles.concernTargetPill}
+              title="CONCERN ถึงใคร"
+              aria-label="Concern target"
+            >
+              <span className={styles.concernTargetLabel}>{concernTarget}</span>
+            </span>
+          )}
 
           {s.is_sent_to_mpsmart ? (
             <span
@@ -245,11 +309,7 @@ export function SessionsTable({
             </CardDescription>
           </div>
 
-          <Button
-            asChild
-            className="gap-2"
-            style={{ backgroundColor: brandBlue1 }}
-          >
+          <Button asChild className="gap-2" style={{ backgroundColor: brandBlue1 }}>
             <a href={exportHref}>
               <Download className="h-4 w-4" />
               Export Excel
@@ -263,9 +323,7 @@ export function SessionsTable({
           <Table className={styles.table}>
             <TableHeader>
               <TableRow>
-                <TableHead className={`${styles.th} ${styles.colNo}`}>
-                  No.
-                </TableHead>
+                <TableHead className={`${styles.th} ${styles.colNo}`}>No.</TableHead>
                 <TableHead className={`${styles.th} ${styles.colStatus}`}>
                   <button
                     type="button"
@@ -283,12 +341,7 @@ export function SessionsTable({
 
             <TableBody>
               {rows.map((s, idx) => (
-                <SessionRowItem
-                  key={s.session_id}
-                  s={s}
-                  idx={idx}
-                  onOpenSession={onOpenSession}
-                />
+                <SessionRowItem key={s.session_id} s={s} idx={idx} onOpenSession={onOpenSession} />
               ))}
             </TableBody>
           </Table>

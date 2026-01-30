@@ -1,0 +1,210 @@
+/* app/admin/sessions/kpi-animated.module.css */
+
+.card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  transform: translateZ(0);
+}
+
+.inner {
+  position: relative;
+  z-index: 2;
+}
+
+.bigNumber {
+  font-size: 44px;
+  font-weight: 950;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  opacity: 0.85;
+}
+
+.hint {
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.75;
+}
+
+.fx {
+  position: absolute;
+  inset: -40px;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 220ms ease;
+  pointer-events: none;
+}
+
+.card:hover .fx {
+  opacity: 1;
+}
+
+/* ===== Variants (base tints) ===== */
+.totalBase {
+  background: linear-gradient(180deg, rgba(2,49,176,0.08), transparent 60%);
+}
+.issueBase {
+  background: linear-gradient(180deg, rgba(185,28,28,0.08), transparent 60%);
+}
+.riskBase {
+  background: linear-gradient(180deg, rgba(245,158,11,0.10), transparent 60%);
+}
+.concernBase {
+  background: linear-gradient(180deg, rgba(250,204,21,0.10), transparent 60%);
+}
+.okBase {
+  background: linear-gradient(180deg, rgba(22,163,74,0.10), transparent 60%);
+}
+
+/* ===== TOTAL: blue glow drift ===== */
+.totalFx::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 30% 35%, rgba(68,157,223,0.45), transparent 55%),
+    radial-gradient(circle at 70% 45%, rgba(2,49,176,0.35), transparent 60%);
+  filter: blur(10px);
+  animation: drift 2.8s ease-in-out infinite alternate;
+}
+@keyframes drift {
+  from { transform: translate(-10px, -6px) scale(1.0); }
+  to   { transform: translate(12px, 10px) scale(1.06); }
+}
+
+/* ===== ISSUE: rotating siren ===== */
+.issueFx::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    conic-gradient(
+      from 0deg,
+      rgba(220,38,38,0.00),
+      rgba(220,38,38,0.55),
+      rgba(220,38,38,0.00),
+      rgba(185,28,28,0.55),
+      rgba(185,28,28,0.00)
+    );
+  filter: blur(18px);
+  animation: spin 1.05s linear infinite;
+  transform-origin: 50% 50%;
+}
+.issueFx::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 45%, rgba(220,38,38,0.25), transparent 55%);
+  filter: blur(14px);
+  animation: flash 0.55s ease-in-out infinite alternate;
+}
+@keyframes spin {
+  from { transform: rotate(0deg) scale(1.05); }
+  to   { transform: rotate(360deg) scale(1.05); }
+}
+@keyframes flash {
+  from { opacity: 0.55; }
+  to   { opacity: 0.95; }
+}
+
+/* ===== RISK: orange warning waves ===== */
+.riskFx::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 30% 55%, rgba(245,158,11,0.45), transparent 55%),
+    radial-gradient(circle at 70% 45%, rgba(251,146,60,0.35), transparent 60%);
+  filter: blur(12px);
+  animation: drift 2.0s ease-in-out infinite alternate;
+}
+.riskFx::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 120%;
+  height: 120%;
+  transform: translate(-50%, -50%);
+  background:
+    radial-gradient(circle, rgba(245,158,11,0.30) 0 8%, transparent 10% 100%),
+    radial-gradient(circle, rgba(245,158,11,0.22) 0 14%, transparent 16% 100%),
+    radial-gradient(circle, rgba(245,158,11,0.16) 0 22%, transparent 24% 100%);
+  filter: blur(0px);
+  animation: pulse 1.1s ease-out infinite;
+  opacity: 0.85;
+}
+@keyframes pulse {
+  from { transform: translate(-50%, -50%) scale(0.85); opacity: 0.25; }
+  to   { transform: translate(-50%, -50%) scale(1.15); opacity: 0.90; }
+}
+
+/* ===== CONCERN: yellow particles floating ===== */
+.concernFx::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 70%, rgba(250,204,21,0.35), transparent 55%),
+    radial-gradient(circle at 80% 40%, rgba(253,224,71,0.25), transparent 60%);
+  filter: blur(12px);
+}
+.concernFx::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle, rgba(250,204,21,0.40) 0 2px, transparent 3px) 0 0 / 60px 60px,
+    radial-gradient(circle, rgba(250,204,21,0.28) 0 1.5px, transparent 2.5px) 20px 30px / 80px 80px,
+    radial-gradient(circle, rgba(250,204,21,0.22) 0 1.2px, transparent 2.2px) 40px 10px / 90px 90px;
+  animation: floatParticles 2.6s linear infinite;
+  opacity: 0.95;
+}
+@keyframes floatParticles {
+  from { transform: translateY(18px); }
+  to   { transform: translateY(-18px); }
+}
+
+/* ===== OK: green aurora + sparkles ===== */
+.okFx::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 30% 55%, rgba(22,163,74,0.40), transparent 55%),
+    radial-gradient(circle at 75% 35%, rgba(34,197,94,0.30), transparent 60%);
+  filter: blur(14px);
+  animation: drift 2.4s ease-in-out infinite alternate;
+}
+.okFx::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle, rgba(34,197,94,0.45) 0 1.6px, transparent 2.6px) 0 0 / 70px 70px,
+    radial-gradient(circle, rgba(22,163,74,0.25) 0 1.2px, transparent 2.2px) 30px 20px / 90px 90px;
+  animation: floatParticles 3.2s linear infinite;
+  opacity: 0.8;
+}
+
+/* accessibility: reduce motion */
+@media (prefers-reduced-motion: reduce) {
+  .fx, .card:hover .fx { opacity: 0.22; }
+  .totalFx::before,
+  .issueFx::before,
+  .issueFx::after,
+  .riskFx::before,
+  .riskFx::after,
+  .concernFx::after,
+  .okFx::before,
+  .okFx::after {
+    animation: none !important;
+  }
+}

@@ -17,6 +17,58 @@ function uid() {
 const SESSION_KEY = "nongsai_session_id";
 const HISTORY_PREFIX = "nongsai_history:";
 
+// ✅ token ที่ถูก set ใน /chat/embed/page.tsx (sessionStorage)
+const BEARER_TOKEN_KEY = "nsj_bearer_token";
+
+function getBearerTokenFromSession(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const t = sessionStorage.getItem(BEARER_TOKEN_KEY);
+    return t && t.trim().length > 10 ? t.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchAuthWithFallback() {
+  // 1) cookie-first
+  let r = await fetch("/api/auth", {
+    cache: "no-store",
+    credentials: "include",
+  });
+
+  const ct1 = r.headers.get("content-type") || "";
+  let j: any = null;
+
+  if (ct1.includes("application/json")) {
+    j = await r.json().catch(() => null);
+  } else {
+    // ไม่ใช่ JSON -> คืนให้ caller จัดการต่อ
+    return { r, j };
+  }
+
+  // 2) ถ้า cookie ใช้ไม่ได้ -> Bearer fallback
+  if (r.status === 401) {
+    const token = getBearerTokenFromSession();
+    if (token) {
+      r = await fetch("/api/auth", {
+        cache: "no-store",
+        credentials: "include",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const ct2 = r.headers.get("content-type") || "";
+      if (ct2.includes("application/json")) {
+        j = await r.json().catch(() => null);
+      } else {
+        j = null;
+      }
+    }
+  }
+
+  return { r, j };
+}
+
 function getOrCreateSessionId() {
   if (typeof window === "undefined") return uuidv4();
 
@@ -45,7 +97,7 @@ function loadHistory(sessionId: string): ChatMessage[] {
           x &&
           typeof x === "object" &&
           typeof x.role === "string" &&
-          typeof x.content === "string",
+          typeof x.content === "string"
       )
       .map((x) => ({
         id: typeof x.id === "string" ? x.id : uid(),
@@ -67,14 +119,10 @@ function saveHistory(sessionId: string, messages: ChatMessage[]) {
   }
 }
 
-export default function ChatShell({
-  embedded = false,
-}: {
-  embedded?: boolean;
-}) {
+export default function ChatShell({ embedded = false }: { embedded?: boolean }) {
   const sessionId = useMemo(() => getOrCreateSessionId(), []);
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
-    loadHistory(sessionId),
+    loadHistory(sessionId)
   );
   const [pending, setPending] = useState(false);
   const [enteringAdmin, setEnteringAdmin] = useState(false);
@@ -84,8 +132,8 @@ export default function ChatShell({
     try {
       setEnteringAdmin(true);
 
-      // ✅ เช็ค session จาก cookie (auth + authz รวม)
-      const r = await fetch("/api/auth", { cache: "no-store" });
+      // ✅ cookie-first + bearer fallback
+      const { r, j } = await fetchAuthWithFallback();
 
       const ct = r.headers.get("content-type") || "";
       if (!ct.includes("application/json")) {
@@ -93,8 +141,6 @@ export default function ChatShell({
         alert(`เข้า Admin ไม่ได้ (HTTP ${r.status})\n${t.slice(0, 200)}...`);
         return;
       }
-
-      const j = await r.json().catch(() => null);
 
       if (!r.ok || !j?.ok) {
         alert(`เข้า Admin ไม่ได้ (HTTP ${r.status})\n${JSON.stringify(j)}`);
@@ -113,7 +159,7 @@ export default function ChatShell({
             type: "NSJ_OPEN_ADMIN",
             url: `${BASE_URL}/admin/sessions`,
           },
-          "*",
+          "*"
         );
       } else {
         // ✅ ถ้าไม่ได้อยู่ใน iframe ให้เปิดปกติ
@@ -123,6 +169,7 @@ export default function ChatShell({
       setEnteringAdmin(false);
     }
   }
+
   useEffect(() => {
     if (!embedded) return; // เช็คเฉพาะใน widget
 
@@ -130,11 +177,7 @@ export default function ChatShell({
 
     async function checkAdmin() {
       try {
-        const r = await fetch("/api/auth", { cache: "no-store" });
-        const ct = r.headers.get("content-type") || "";
-        if (!ct.includes("application/json")) return;
-
-        const j = await r.json().catch(() => null);
+        const { r, j } = await fetchAuthWithFallback();
         if (!alive) return;
 
         setCanSeeAdmin(!!(r.ok && j?.ok && j?.isAdmin));

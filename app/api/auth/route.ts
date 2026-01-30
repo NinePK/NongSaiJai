@@ -82,10 +82,11 @@ async function isAdminByPemRules(email: string) {
 function setCookies(res: NextResponse, req: NextRequest, payload: any) {
   const session = Buffer.from(JSON.stringify(payload)).toString("base64url");
 
+  // ✅ คงแบบเดิม: เหมาะกับ iframe + HTTPS
   res.cookies.set("nsj_session", session, {
     httpOnly: true,
-    secure: true,        // ✅ HTTPS เท่านั้น
-    sameSite: "none",    // ✅ iframe cross-origin
+    secure: true,
+    sameSite: "none",
     path: "/",
     maxAge: 60 * 60,
   });
@@ -98,7 +99,6 @@ function setCookies(res: NextResponse, req: NextRequest, payload: any) {
     maxAge: 60 * 60,
   });
 }
-
 
 function clearCookies(res: NextResponse, req: NextRequest) {
   const secure = cookieShouldBeSecure(req);
@@ -118,18 +118,53 @@ function clearCookies(res: NextResponse, req: NextRequest) {
   });
 }
 
-// GET /api/auth  -> อ่าน session
+// GET /api/auth  -> อ่าน session (cookie-first) + Bearer fallback
 export async function GET(req: NextRequest) {
+  // 1) cookie-first
   const sess = readSession(req);
-  if (!sess?.email) {
-    return NextResponse.json({ ok: false, error: "no_session" }, { status: 401 });
+  if (sess?.email) {
+    return NextResponse.json({
+      ok: true,
+      email: String(sess.email).trim().toLowerCase(),
+      name: sess.name ?? null,
+      isAdmin: Boolean(sess.isAdmin),
+      mode: "cookie",
+    });
   }
-  return NextResponse.json({
-    ok: true,
-    email: String(sess.email).trim().toLowerCase(),
-    name: sess.name ?? null,
-    isAdmin: Boolean(sess.isAdmin),
-  });
+
+  // 2) Bearer fallback
+  const auth = req.headers.get("authorization") || "";
+  if (auth.toLowerCase().startsWith("bearer ")) {
+    const token = auth.slice(7).trim();
+    if (token.length < 10) {
+      return NextResponse.json(
+        { ok: false, error: "invalid_bearer_token" },
+        { status: 401 }
+      );
+    }
+
+    const email = await getEmailFromToken(token);
+    if (!email) {
+      return NextResponse.json(
+        { ok: false, error: "invalid_token_or_missing_email" },
+        { status: 401 }
+      );
+    }
+
+    const isOwner = email === OWNER_EMAIL;
+    const isAdmin = isOwner ? true : await isAdminByPemRules(email);
+
+    return NextResponse.json({
+      ok: true,
+      email: String(email).trim().toLowerCase(),
+      name: emailLocalPart(email),
+      isAdmin,
+      mode: "bearer",
+    });
+  }
+
+  // 3) no auth
+  return NextResponse.json({ ok: false, error: "no_session" }, { status: 401 });
 }
 
 // POST /api/auth -> รับ token แล้วสร้าง session/cookies
@@ -138,12 +173,18 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => null);
     const token = typeof body?.token === "string" ? body.token.trim() : "";
     if (!token) {
-      return NextResponse.json({ ok: false, error: "missing_token" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "missing_token" },
+        { status: 400 }
+      );
     }
 
     const email = await getEmailFromToken(token);
     if (!email) {
-      return NextResponse.json({ ok: false, error: "invalid_token_or_missing_email" }, { status: 401 });
+      return NextResponse.json(
+        { ok: false, error: "invalid_token_or_missing_email" },
+        { status: 401 }
+      );
     }
 
     const isOwner = email === OWNER_EMAIL;
@@ -160,7 +201,10 @@ export async function POST(req: NextRequest) {
     setCookies(res, req, payload);
     return res;
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "unknown" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "unknown" },
+      { status: 500 }
+    );
   }
 }
 

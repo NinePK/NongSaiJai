@@ -1,23 +1,17 @@
+// app/admin/sessions/sessions.client.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { RefreshCcw } from "lucide-react";
 
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 import { LegendDialog } from "./LegendDialog";
 import { Filters } from "./Filters";
 import { SessionsTable, type SessionRow } from "./SessionsTable";
-
-import styles from "./sessions.module.css";
 
 export type KPI = {
   total: number;
@@ -27,18 +21,10 @@ export type KPI = {
   risk: number;
 };
 
-const BRAND = {
-  blue1: "#0231b0",
-  blue2: "#042f81",
-  cyan: "#449ddf",
-  purple: "#6966b0",
-};
+const BRAND_BLUE = "#0231b0";
 
 const GlowBg = () => (
-  <div
-    className="pointer-events-none absolute inset-0 overflow-hidden"
-    aria-hidden
-  >
+  <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
     <div
       className="absolute -top-40 left-1/2 h-[520px] w-[900px] -translate-x-1/2 rounded-full blur-3xl"
       style={{
@@ -49,6 +35,13 @@ const GlowBg = () => (
   </div>
 );
 
+const METRIC_GRADIENTS = {
+  blue: "from-[rgba(2,49,176,0.18)]",
+  cyan: "from-[rgba(68,157,223,0.20)]",
+  red: "from-[rgba(220,38,38,0.14)]",
+  amber: "from-[rgba(245,158,11,0.14)]",
+} as const;
+
 const MetricCard = ({
   title,
   value,
@@ -58,31 +51,23 @@ const MetricCard = ({
   title: string;
   value: string;
   hint?: string;
-  accent?: "blue" | "cyan" | "red" | "amber";
-}) => {
-  const gradients = {
-    blue: "from-[rgba(2,49,176,0.18)]",
-    cyan: "from-[rgba(68,157,223,0.20)]",
-    red: "from-[rgba(220,38,38,0.14)]",
-    amber: "from-[rgba(245,158,11,0.14)]",
-  };
+  accent?: keyof typeof METRIC_GRADIENTS;
+}) => (
+  <Card className="relative overflow-hidden">
+    <div className={`absolute inset-0 bg-gradient-to-br ${METRIC_GRADIENTS[accent]} to-transparent`} />
+    <CardHeader className="relative pb-2">
+      <CardDescription className="text-xs font-semibold">{title}</CardDescription>
+      <CardTitle className="text-3xl font-black">{value}</CardTitle>
+      {hint && <div className="text-xs text-muted-foreground pt-2">{hint}</div>}
+    </CardHeader>
+  </Card>
+);
 
-  return (
-    <Card className="relative overflow-hidden">
-      <div
-        className={`absolute inset-0 bg-gradient-to-br ${gradients[accent]} to-transparent`}
-      />
-      <CardHeader className="relative pb-2">
-        <CardDescription className="text-xs font-semibold">
-          {title}
-        </CardDescription>
-        <CardTitle className="text-3xl font-black">{value}</CardTitle>
-        {hint && (
-          <div className="text-xs text-muted-foreground pt-2">{hint}</div>
-        )}
-      </CardHeader>
-    </Card>
-  );
+const sameArray = (a: string[] = [], b: string[] = []) => {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  const sa = new Set(a);
+  return b.every((x) => sa.has(x));
 };
 
 export default function AdminSessionsClient({
@@ -94,6 +79,8 @@ export default function AdminSessionsClient({
   initialCategory = "ALL",
   initialMpSent = "ALL",
   initialMonth = "",
+  initialConcernScopes = [],
+  initialBackofficeTeams = [],
 }: {
   sessions: SessionRow[];
   nextCursor: string | null;
@@ -103,85 +90,111 @@ export default function AdminSessionsClient({
   initialCategory?: string;
   initialMpSent?: string;
   initialMonth?: string;
+  initialConcernScopes?: string[];
+  initialBackofficeTeams?: string[];
 }) {
   const router = useRouter();
 
-  // ===== Filters state =====
+  // Filter states
   const [q, setQ] = useState(initialQuery);
   const [status, setStatus] = useState(initialStatus || "ALL");
   const [category, setCategory] = useState(initialCategory || "ALL");
   const [mpsent, setMpsent] = useState(initialMpSent || "ALL");
   const [month, setMonth] = useState(initialMonth || "");
+  const [concernScopes, setConcernScopes] = useState<string[]>(
+    Array.isArray(initialConcernScopes) ? initialConcernScopes : []
+  );
+  const [backofficeTeams, setBackofficeTeams] = useState<string[]>(
+    Array.isArray(initialBackofficeTeams) ? initialBackofficeTeams : []
+  );
+
+  // Table states
+  const [rows, setRows] = useState<SessionRow[]>(sessions);
+  const [cursor, setCursor] = useState<string | null>(nextCursor);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
-  useEffect(() => {
-    setHydrated(true);
-  }, []);
+  const lastNavRef = useRef<string>("");
 
-  // ✅ ฟังก์ชันสร้าง query string จาก filter ปัจจุบัน
-  const buildQueryString = (
-    override?: Partial<{
-      q: string;
-      status: string;
-      category: string;
-      mpsent: string;
-      month: string;
-    }>
-  ) => {
-    const _q = (override?.q ?? q).trim();
-    const _status = override?.status ?? status;
-    const _category = override?.category ?? category;
-    const _mpsent = override?.mpsent ?? mpsent;
-    const _month = override?.month ?? month;
+  useEffect(() => setHydrated(true), []);
 
+  const buildQueryString = (override?: Partial<{
+    q: string;
+    status: string;
+    category: string;
+    mpsent: string;
+    month: string;
+    concernScopes: string[];
+    backofficeTeams: string[];
+  }>) => {
+    const state = { q, status, category, mpsent, month, concernScopes, backofficeTeams };
+    const merged = { ...state, ...override };
+    
     const params = new URLSearchParams();
+    const _q = merged.q.trim();
+    
     if (_q) params.set("q", _q);
-    if (_status !== "ALL") params.set("status", _status);
-    if (_category !== "ALL") params.set("category", _category);
-    if (_mpsent !== "ALL") params.set("mpsent", _mpsent);
-    if (_month) params.set("month", _month);
+    if (merged.status !== "ALL") params.set("status", merged.status);
+    if (merged.category !== "ALL") params.set("category", merged.category);
+    if (merged.mpsent !== "ALL") params.set("mpsent", merged.mpsent);
+    if (merged.month) params.set("month", merged.month);
+
+    merged.concernScopes.forEach((s: string) => params.append("concern_scope", s));
+
+    if (merged.concernScopes.includes("BACKOFFICE")) {
+      merged.backofficeTeams.forEach((t: string) => params.append("backoffice_team", t));
+    }
 
     const qs = params.toString();
     return qs ? `?${qs}` : "";
   };
 
-  // ===== Table state =====
-  const [rows, setRows] = useState<SessionRow[]>(sessions);
-  const [cursor, setCursor] = useState<string | null>(nextCursor);
-  const [loadingMore, setLoadingMore] = useState(false);
-
-  const [legendOpen, setLegendOpen] = useState(false);
-
-  // ✅ Sync state เมื่อ server ส่ง props ใหม่ (Filter ใช้งานได้จริง)
+  // Sync URL params without bounce
   useEffect(() => {
-    setQ(initialQuery);
-    setStatus(initialStatus || "ALL");
-    setCategory(initialCategory || "ALL");
-    setMpsent(initialMpSent || "ALL");
-    setMonth(initialMonth || "");
+    const nextQ = initialQuery ?? "";
+    const nextStatus = initialStatus || "ALL";
+    const nextCategory = initialCategory || "ALL";
+    const nextMpSent = initialMpSent || "ALL";
+    const nextMonth = initialMonth || "";
+    const nextConcern = Array.isArray(initialConcernScopes) ? initialConcernScopes : [];
+    const nextBackoffice = Array.isArray(initialBackofficeTeams) ? initialBackofficeTeams : [];
+
+    if (q !== nextQ) setQ(nextQ);
+    if (status !== nextStatus) setStatus(nextStatus);
+    if (category !== nextCategory) setCategory(nextCategory);
+    if (mpsent !== nextMpSent) setMpsent(nextMpSent);
+    if (month !== nextMonth) setMonth(nextMonth);
+    if (!sameArray(concernScopes, nextConcern)) setConcernScopes(nextConcern);
+    if (!sameArray(backofficeTeams, nextBackoffice)) setBackofficeTeams(nextBackoffice);
+
     setRows(sessions);
     setCursor(nextCursor);
-  }, [
-    initialQuery,
-    initialStatus,
-    initialCategory,
-    initialMpSent,
-    initialMonth,
-    sessions,
-    nextCursor,
-  ]);
-useEffect(() => {
-  if (!hydrated) return;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuery, initialStatus, initialCategory, initialMpSent, initialMonth, 
+      initialConcernScopes, initialBackofficeTeams, sessions, nextCursor]);
 
-  const t = setTimeout(() => {
-    router.push(`/admin/sessions${buildQueryString()}`);
-  }, 350);
+  // Debounced URL update
+  useEffect(() => {
+    if (!hydrated) return;
 
-  return () => clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [q, status, category, mpsent, month, hydrated]);
+    const t = setTimeout(() => {
+      const nextUrl = `/admin/sessions${buildQueryString()}`;
+      const currentUrl = typeof window !== "undefined" 
+        ? `${window.location.pathname}${window.location.search}` 
+        : "";
 
-  // ===== KPI =====
+      if (nextUrl === currentUrl || lastNavRef.current === nextUrl) return;
+      
+      lastNavRef.current = nextUrl;
+      router.replace(nextUrl);
+    }, 500);
+
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, status, category, mpsent, month, concernScopes, backofficeTeams, hydrated]);
+
+  // Compute KPI
   const kpiView = useMemo(() => {
     const fallback = {
       total: rows.length,
@@ -202,16 +215,24 @@ useEffect(() => {
     };
   }, [kpi, rows]);
 
-  // ===== Export =====
   const exportHref = useMemo(() => {
     const params = new URLSearchParams();
-    if (q.trim()) params.set("q", q.trim());
+    const _q = q.trim();
+
+    if (_q) params.set("q", _q);
     if (status !== "ALL") params.set("status", status);
     if (category !== "ALL") params.set("category", category);
     if (mpsent !== "ALL") params.set("mpsent", mpsent);
     if (month) params.set("month", month);
+
+    concernScopes.forEach((s: string) => params.append("concern_scope", s));
+
+    if (concernScopes.includes("BACKOFFICE")) {
+      backofficeTeams.forEach((t: string) => params.append("backoffice_team", t));
+    }
+
     return `/api/admin/export/executive?${params.toString()}`;
-  }, [q, status, category, mpsent, month]);
+  }, [q, status, category, mpsent, month, concernScopes, backofficeTeams]);
 
   const handleReset = () => {
     setQ("");
@@ -219,45 +240,45 @@ useEffect(() => {
     setCategory("ALL");
     setMpsent("ALL");
     setMonth("");
-    router.push("/admin/sessions");
+    setConcernScopes([]);
+    setBackofficeTeams([]);
+    router.replace("/admin/sessions");
   };
 
   const onOpenSession = (sessionId: string) => {
     router.push(`/admin/sessions/${sessionId}`);
   };
 
-  // ===== Load more =====
   const loadMore = async () => {
     if (!cursor || loadingMore) return;
 
     setLoadingMore(true);
     try {
       const sp = new URLSearchParams();
-      if (q.trim()) sp.set("q", q.trim());
+      const _q = q.trim();
+
+      if (_q) sp.set("q", _q);
       if (status !== "ALL") sp.set("status", status);
       if (category !== "ALL") sp.set("category", category);
       if (mpsent !== "ALL") sp.set("mpsent", mpsent);
       if (month) sp.set("month", month);
+
+      concernScopes.forEach((s: string) => sp.append("concern_scope", s));
+      if (concernScopes.includes("BACKOFFICE")) {
+        backofficeTeams.forEach((t: string) => sp.append("backoffice_team", t));
+      }
+
       sp.set("limit", "50");
       sp.set("cursor", cursor);
 
-      const res = await fetch(`/api/admin/sessions?${sp.toString()}`, {
-        cache: "no-store",
-      });
+      const res = await fetch(`/api/admin/sessions?${sp.toString()}`, { cache: "no-store" });
       if (!res.ok) throw new Error(await res.text());
 
-      const j = (await res.json()) as {
-        items: SessionRow[];
-        nextCursor: string | null;
-      };
+      const j = (await res.json()) as { items: SessionRow[]; nextCursor: string | null };
 
       setRows((prev) => {
         const seen = new Set(prev.map((x) => x.session_id));
-        const merged = [...prev];
-        for (const it of j.items ?? []) {
-          if (!seen.has(it.session_id)) merged.push(it);
-        }
-        return merged;
+        return [...prev, ...j.items.filter((it) => !seen.has(it.session_id))];
       });
 
       setCursor(j.nextCursor);
@@ -290,30 +311,10 @@ useEffect(() => {
 
           <div className="mt-5 space-y-4">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              <MetricCard
-                title="ทั้งหมด"
-                value={String(kpiView.total)}
-                hint="รวมที่โหลดมาแล้ว"
-                accent="blue"
-              />
-              <MetricCard
-                title="ISSUE"
-                value={String(kpiView.issue)}
-                hint="เกิดขึ้นแล้ว"
-                accent="red"
-              />
-              <MetricCard
-                title="RISK"
-                value={String(kpiView.risk)}
-                hint="ต้องจัดการ"
-                accent="red"
-              />
-              <MetricCard
-                title="CONCERN"
-                value={String(kpiView.concern)}
-                hint="ควรติดตาม"
-                accent="amber"
-              />
+              <MetricCard title="ทั้งหมด" value={String(kpiView.total)} hint="รวมที่โหลดมาแล้ว" accent="blue" />
+              <MetricCard title="ISSUE" value={String(kpiView.issue)} hint="เกิดขึ้นแล้ว" accent="red" />
+              <MetricCard title="RISK" value={String(kpiView.risk)} hint="ต้องจัดการ" accent="red" />
+              <MetricCard title="CONCERN" value={String(kpiView.concern)} hint="ควรติดตาม" accent="amber" />
               <MetricCard
                 title="Informational - NO RISK"
                 value={String(kpiView.normal)}
@@ -333,6 +334,10 @@ useEffect(() => {
               setMpsent={setMpsent}
               month={month}
               setMonth={setMonth}
+              concernScopes={concernScopes}
+              setConcernScopes={setConcernScopes}
+              backofficeTeams={backofficeTeams}
+              setBackofficeTeams={setBackofficeTeams}
               onReset={handleReset}
             />
           </div>
@@ -344,7 +349,7 @@ useEffect(() => {
                 exportHref={exportHref}
                 onOpenLegend={() => setLegendOpen(true)}
                 onOpenSession={onOpenSession}
-                brandBlue1={BRAND.blue1}
+                brandBlue1={BRAND_BLUE}
               />
 
               <div className="flex items-center justify-center">
@@ -359,9 +364,7 @@ useEffect(() => {
                     <RefreshCcw className="h-4 w-4" />
                   </Button>
                 ) : (
-                  <div className="text-xs text-muted-foreground">
-                    ไม่มีข้อมูลเพิ่มเติมแล้ว
-                  </div>
+                  <div className="text-xs text-muted-foreground">ไม่มีข้อมูลเพิ่มเติมแล้ว</div>
                 )}
               </div>
             </div>

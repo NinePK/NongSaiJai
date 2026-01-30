@@ -23,8 +23,10 @@ type Row = {
   is_sent_to_mpsmart: boolean;
   mpsmart_sent_at: string | null;
 
-  // ✅ NEW
   is_admin_opened: boolean;
+
+  // ✅ ส่งออกไปให้ฝั่ง UI เอาไปโชว์ scope/team ที่ Status ได้
+  override_notes: string | null;
 
   sort_ts: string | null;
 };
@@ -50,13 +52,29 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
 
     const q = (url.searchParams.get("q") ?? "").trim();
-    const statusRaw = (url.searchParams.get("status") ?? "").trim(); // ISSUE/RISK/CONCERN/NON_RISK/ALL/empty
+    const statusRaw = (url.searchParams.get("status") ?? "").trim(); // ISSUE/RISK/CONCERN/NON_RISK/ALL
+    const categoryRaw = (url.searchParams.get("category") ?? "").trim(); // People/Process/...
+    const mpsentRaw = (url.searchParams.get("mpsent") ?? "").trim(); // SENT/NOT_SENT/ALL
+    const month = (url.searchParams.get("month") ?? "").trim(); // YYYY-MM
     const cursorRaw = (url.searchParams.get("cursor") ?? "").trim();
+
+    // ✅ MULTI: allow repeated query keys
+    const concernScopes = url.searchParams
+      .getAll("concern_scope")
+      .map((s) => s.trim())
+      .filter((s) => s && s !== "ALL");
+
+    const backofficeTeams = url.searchParams
+      .getAll("backoffice_team")
+      .map((s) => s.trim())
+      .filter((s) => s && s !== "ALL");
 
     const limitReq = parseInt(url.searchParams.get("limit") ?? "50", 10);
     const limit = Math.min(Number.isFinite(limitReq) ? limitReq : 50, 200);
 
     const status = !statusRaw || statusRaw === "ALL" ? "" : statusRaw;
+    const category = !categoryRaw || categoryRaw === "ALL" ? "" : categoryRaw;
+    const mpsent = !mpsentRaw || mpsentRaw === "ALL" ? "" : mpsentRaw;
 
     const cursor = cursorRaw ? decodeCursor(cursorRaw) : null;
 
@@ -64,38 +82,100 @@ export async function GET(req: Request) {
     const params: any[] = [];
     let i = 1;
 
+    // ✅ search
     if (q) {
-      where.push(`proj_code ILIKE $${i}`);
+      where.push(`(b.proj_code ILIKE $${i} OR b.ai_summary ILIKE $${i})`);
       params.push(`%${q}%`);
       i++;
     }
 
+    // ✅ status
     if (status) {
-      where.push(`effective_status = $${i}`);
+      where.push(`b.effective_status = $${i}`);
       params.push(status);
       i++;
     }
 
-    // keyset pagination: sort by sort_ts desc nulls last, then session_id desc
+    // ✅ category
+    if (category) {
+      where.push(`b.effective_primary_category = $${i}`);
+      params.push(category);
+      i++;
+    }
+
+    // ✅ mpsent
+    if (mpsent === "SENT") {
+      where.push(`b.is_sent_to_mpsmart = true`);
+    } else if (mpsent === "NOT_SENT") {
+      where.push(`b.is_sent_to_mpsmart = false`);
+    }
+
+    // ✅ month (YYYY-MM) -> match last_message_at month
+    if (month) {
+      where.push(`
+        (
+          b.last_message_at IS NOT NULL
+          AND date_trunc('month', b.last_message_at)
+              = date_trunc('month', (($${i}::text || '-01')::date))
+        )
+      `);
+      params.push(month);
+      i++;
+    }
+
+    // ✅ MULTI filter: Concern scope(s)
+    // ใช้จาก override_notes (เฉพาะ override_status=CONCERN และ is_active=true เท่านั้น)
+    if (concernScopes.length > 0) {
+      where.push(`
+        (
+          b.override_status = 'CONCERN'
+          AND b.override_notes IS NOT NULL
+          AND (b.override_notes::jsonb -> 'target' ->> 'scope') = ANY($${i}::text[])
+        )
+      `);
+      params.push(concernScopes);
+      i++;
+    }
+
+    // ✅ MULTI filter: Backoffice team(s)
+    // ทำงานเมื่อ target.scope = BACKOFFICE และ team_code อยู่ใน targets[]
+    if (backofficeTeams.length > 0) {
+      where.push(`
+        (
+          b.override_status = 'CONCERN'
+          AND b.override_notes IS NOT NULL
+          AND (b.override_notes::jsonb -> 'target' ->> 'scope') = 'BACKOFFICE'
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(b.override_notes::jsonb -> 'targets') AS t
+            WHERE (t ->> 'team_code') = ANY($${i}::text[])
+          )
+        )
+      `);
+      params.push(backofficeTeams);
+      i++;
+    }
+
+    // ✅ keyset pagination
     if (cursor) {
       where.push(`
         (
           (
             $${i}::timestamptz IS NOT NULL
-            AND sort_ts IS NOT NULL
+            AND b.sort_ts IS NOT NULL
             AND (
-              sort_ts < $${i}::timestamptz
-              OR (sort_ts = $${i}::timestamptz AND session_id::text < $${i + 1})
+              b.sort_ts < $${i}::timestamptz
+              OR (b.sort_ts = $${i}::timestamptz AND b.session_id::text < $${i + 1})
             )
           )
           OR (
             $${i}::timestamptz IS NOT NULL
-            AND sort_ts IS NULL
+            AND b.sort_ts IS NULL
           )
           OR (
             $${i}::timestamptz IS NULL
-            AND sort_ts IS NULL
-            AND session_id::text < $${i + 1}
+            AND b.sort_ts IS NULL
+            AND b.session_id::text < $${i + 1}
           )
         )
       `);
@@ -110,48 +190,51 @@ export async function GET(req: Request) {
     const sql = `
       WITH base AS (
         SELECT
-          session_id,
-          proj_code,
-          effective_status,
-          effective_primary_category,
-          ai_status,
-          ai_primary_category,
-          has_override,
-          overridden_at,
-          last_message_at,
-          last_message_snippet,
-          ai_summary,
-          is_sent_to_mpsmart,
-          mpsmart_sent_at,
+          v.session_id,
+          v.proj_code,
+          v.effective_status,
+          v.effective_primary_category,
+          v.ai_status,
+          v.ai_primary_category,
+          v.has_override,
+          v.overridden_at,
+          v.last_message_at,
+          v.last_message_snippet,
+          v.ai_summary,
+          v.is_sent_to_mpsmart,
+          v.mpsmart_sent_at,
+          v.is_admin_opened,
+          COALESCE(v.last_message_at, v.session_created_at) AS sort_ts,
 
-          -- ✅ NEW: admin opened (ต้องมีใน view v_ai_session_admin ด้วย)
-          is_admin_opened,
+          -- ✅ override payload (เฉพาะ active)
+          o.override_status,
+          o.override_notes
 
-          COALESCE(last_message_at, session_created_at) AS sort_ts
-        FROM public.v_ai_session_admin
+        FROM public.v_ai_session_admin v
+        LEFT JOIN public.ai_admin_overrides o
+          ON o.session_id = v.session_id
+         AND o.is_active = true
       )
       SELECT
-        session_id,
-        proj_code,
-        effective_status,
-        effective_primary_category,
-        ai_status,
-        ai_primary_category,
-        has_override,
-        overridden_at,
-        last_message_at,
-        last_message_snippet,
-        ai_summary,
-        is_sent_to_mpsmart,
-        mpsmart_sent_at,
-
-        -- ✅ NEW
-        is_admin_opened,
-
-        sort_ts
-      FROM base
+        b.session_id,
+        b.proj_code,
+        b.effective_status,
+        b.effective_primary_category,
+        b.ai_status,
+        b.ai_primary_category,
+        b.has_override,
+        b.overridden_at,
+        b.last_message_at,
+        b.last_message_snippet,
+        b.ai_summary,
+        b.is_sent_to_mpsmart,
+        b.mpsmart_sent_at,
+        b.is_admin_opened,
+        b.override_notes,
+        b.sort_ts
+      FROM base b
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-      ORDER BY sort_ts DESC NULLS LAST, session_id::text DESC
+      ORDER BY b.sort_ts DESC NULLS LAST, b.session_id::text DESC
       LIMIT ${limitParam}
     `;
 

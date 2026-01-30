@@ -1,3 +1,4 @@
+//app/admin/sessions/LegendDialog.tsx
 "use client";
 
 import React from "react";

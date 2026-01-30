@@ -7,12 +7,10 @@ type Severity = "High" | "Medium" | "Low";
 
 function safeMaxRiskScore(aiRiskScores: any): number {
   if (!aiRiskScores || typeof aiRiskScores !== "object") return 0;
-
   const vals = Object.values(aiRiskScores).map((v: any) => {
     const n = Number(v?.score ?? 0);
     return Number.isFinite(n) ? n : 0;
   });
-
   return Math.max(0, ...vals);
 }
 
@@ -25,7 +23,6 @@ function toSeverity(maxScore: number): Severity {
 function fmtDT(v?: string | null): string {
   if (!v) return "-";
   try {
-    // แสดงแบบอ่านง่าย (ปรับได้ตามที่ชอบ)
     return new Date(v).toISOString().slice(0, 16).replace("T", " ");
   } catch {
     return String(v);
@@ -35,21 +32,33 @@ function fmtDT(v?: string | null): string {
 export async function GET(req: Request) {
   const url = new URL(req.url);
 
-  // ✅ filters from UI
   const q = (url.searchParams.get("q") ?? "").trim();
-  const status = (url.searchParams.get("status") ?? "").trim(); // ISSUE/RISK/CONCERN/NON_RISK
-  const category = (url.searchParams.get("category") ?? "").trim(); // People/Process/...
-  const mpsent = (url.searchParams.get("mpsent") ?? "").trim(); // SENT/NOT_SENT
+  const statusRaw = (url.searchParams.get("status") ?? "").trim(); // ISSUE/RISK/CONCERN/NON_RISK
+  const categoryRaw = (url.searchParams.get("category") ?? "").trim(); // People/Process/...
+  const mpsentRaw = (url.searchParams.get("mpsent") ?? "").trim(); // SENT/NOT_SENT
   const month = (url.searchParams.get("month") ?? "").trim(); // YYYY-MM
 
-  // Build WHERE + params (safe)
+  // ✅ MULTI
+  const concernScopes = url.searchParams
+    .getAll("concern_scope")
+    .map((s) => s.trim())
+    .filter((s) => s && s !== "ALL");
+
+  const backofficeTeams = url.searchParams
+    .getAll("backoffice_team")
+    .map((s) => s.trim())
+    .filter((s) => s && s !== "ALL");
+
+  const status = statusRaw && statusRaw !== "ALL" ? statusRaw : "";
+  const category = categoryRaw && categoryRaw !== "ALL" ? categoryRaw : "";
+  const mpsent = mpsentRaw && mpsentRaw !== "ALL" ? mpsentRaw : "";
+
   const where: string[] = [];
   const params: any[] = [];
   let i = 1;
 
   if (q) {
-    // คุณอาจอยากให้ค้นหา title/summary ด้วยก็ได้ แต่เริ่มจาก proj_code ก่อนให้ชัวร์
-    where.push(`s.proj_code ilike $${i}`);
+    where.push(`(s.proj_code ILIKE $${i} OR s.ai_summary ILIKE $${i} OR s.ai_title ILIKE $${i})`);
     params.push(`%${q}%`);
     i++;
   }
@@ -66,27 +75,53 @@ export async function GET(req: Request) {
     i++;
   }
 
-  if (mpsent === "SENT") {
-    where.push(`s.is_sent_to_mpsmart = true`);
-  } else if (mpsent === "NOT_SENT") {
-    where.push(`s.is_sent_to_mpsmart = false`);
-  }
+  if (mpsent === "SENT") where.push(`s.is_sent_to_mpsmart = true`);
+  else if (mpsent === "NOT_SENT") where.push(`s.is_sent_to_mpsmart = false`);
 
-  // month filter: match month ของ last_message_at (ถ้า null จะไม่เข้าเงื่อนไข)
   if (month) {
-    // month format "YYYY-MM" -> use first day
     where.push(
-      `date_trunc('month', s.last_message_at) = date_trunc('month', ($${i}::text || '-01')::date)`
+      `date_trunc('month', s.last_message_at) = date_trunc('month', (($${i}::text || '-01')::date))`
     );
     params.push(month);
     i++;
   }
 
+  // ✅ Concern scope filter (อิง override_notes ที่ active)
+  if (concernScopes.length > 0) {
+    where.push(`
+      (
+        o.override_status = 'CONCERN'
+        AND o.override_notes IS NOT NULL
+        AND (o.override_notes::jsonb -> 'target' ->> 'scope') = ANY($${i}::text[])
+      )
+    `);
+    params.push(concernScopes);
+    i++;
+  }
+
+  // ✅ Backoffice team filter (อิง targets[].team_code)
+  if (backofficeTeams.length > 0) {
+    where.push(`
+      (
+        o.override_status = 'CONCERN'
+        AND o.override_notes IS NOT NULL
+        AND (o.override_notes::jsonb -> 'target' ->> 'scope') = 'BACKOFFICE'
+        AND EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(o.override_notes::jsonb -> 'targets') AS t
+          WHERE (t ->> 'team_code') = ANY($${i}::text[])
+        )
+      )
+    `);
+    params.push(backofficeTeams);
+    i++;
+  }
+
   const sql = `
-    select
+    SELECT
       s.proj_code,
-      p.ref_proj_code as project_name,
-      p.pm_name as pm_name,
+      p.ref_proj_code AS project_name,
+      p.pm_name AS pm_name,
 
       s.ai_title,
       s.ai_summary,
@@ -95,26 +130,28 @@ export async function GET(req: Request) {
       s.effective_status,
       s.effective_primary_category,
 
-      coalesce(s.last_message_at, s.ai_updated_at) as last_update,
+      COALESCE(s.last_message_at, s.ai_updated_at) AS last_update,
 
       s.is_unread_by_admin,
       s.is_sent_to_mpsmart,
       s.mpsmart_sent_at
 
-    from public.v_ai_session_admin s
-    left join public.v_ai_project p
-      on lower(p.proj_code) = lower(s.proj_code)
+    FROM public.v_ai_session_admin s
+    LEFT JOIN public.v_ai_project p
+      ON lower(p.proj_code) = lower(s.proj_code)
 
-    ${where.length ? `where ${where.join(" and ")}` : ""}
+    -- ✅ join override เพื่อ filter scope/team (เฉพาะ active)
+    LEFT JOIN public.ai_admin_overrides o
+      ON o.session_id = s.session_id
+     AND o.is_active = true
 
-    order by
-      -- ให้ Severity สูงขึ้นก่อน (คำนวณภายหลังใน JS แต่ sort ใน SQL ด้วย last_update เผื่อเท่ากัน)
-      coalesce(s.last_message_at, s.ai_updated_at) desc
+    ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+
+    ORDER BY COALESCE(s.last_message_at, s.ai_updated_at) DESC
   `;
 
   const { rows: data } = await pool.query(sql, params);
 
-  // Build executive rows (ตาม spec ที่คุณอนุมัติ)
   const rows = (data ?? []).map((r: any) => {
     const maxScore = safeMaxRiskScore(r.ai_risk_scores);
     const sev = toSeverity(maxScore);
@@ -136,16 +173,10 @@ export async function GET(req: Request) {
     };
   });
 
-  // Sort: High -> Medium -> Low, แล้วค่อย Last Update
+  // (optional) sort severity
   const rank: Record<Severity, number> = { High: 3, Medium: 2, Low: 1 };
-  rows.sort((a, b) => {
-    const d = (rank[b.severity] ?? 0) - (rank[a.severity] ?? 0);
-    if (d !== 0) return d;
-    // last_update เป็น string แล้ว; ถ้าต้องเป๊ะให้เก็บ raw date เพิ่มแล้ว sort ด้วย date
-    return 0;
-  });
+  rows.sort((a, b) => (rank[b.severity] ?? 0) - (rank[a.severity] ?? 0));
 
-  // Create workbook
   const wb = new ExcelJS.Workbook();
   wb.creator = "NongSaiJai";
   wb.created = new Date();
@@ -168,7 +199,6 @@ export async function GET(req: Request) {
 
   ws.addRows(rows);
 
-  // Header styling
   ws.getRow(1).font = { bold: true };
   ws.views = [{ state: "frozen", ySplit: 1 }];
   ws.autoFilter = {
@@ -176,7 +206,6 @@ export async function GET(req: Request) {
     to: { row: 1, column: ws.columns.length },
   };
 
-  // Wrap long text
   ws.getColumn("executive_summary").alignment = { wrapText: true, vertical: "top" };
   ws.getColumn("ai_title").alignment = { wrapText: true, vertical: "top" };
 
@@ -184,8 +213,7 @@ export async function GET(req: Request) {
 
   return new NextResponse(buffer, {
     headers: {
-      "Content-Type":
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "Content-Disposition": 'attachment; filename="Executive_Export.xlsx"',
       "Cache-Control": "no-store",
     },

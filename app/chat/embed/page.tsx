@@ -10,7 +10,7 @@ const ChatShellNoSSR = dynamic(() => import("@/components/chat/ChatShell"), {
 
 type AuthState = "idle" | "loading" | "ok" | "error";
 
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ;
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL;
 
 // ✅ เพิ่ม UAT origins
 const ALLOWED_ORIGINS = new Set([
@@ -18,9 +18,12 @@ const ALLOWED_ORIGINS = new Set([
   "http://127.0.0.1:5500",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
-  "https://uat-msync.mfec.co.th",  // ✅ เพิ่ม
+  "https://uat-msync.mfec.co.th",
   "https://msync.mfec.co.th",
 ]);
+
+// ✅ เก็บ token แบบชั่วคราวใน iframe (sessionStorage) เพื่อใช้ Bearer fallback
+const TOKEN_KEY = "nsj_bearer_token";
 
 async function exchangeToken(token: string) {
   const res = await fetch("/api/auth", {
@@ -47,26 +50,22 @@ export default function ChatEmbedPage() {
     setReady(true);
 
     const handleMessage = async (ev: MessageEvent) => {
-      if (!ALLOWED_ORIGINS.has(ev.origin)) {
-        return;
-      }
+      if (!ALLOWED_ORIGINS.has(ev.origin)) return;
 
       const { type, token } = ev.data || {};
-      
-      if (type !== "NSJ_TOKEN") {
-        return;
-      }
+      if (type !== "NSJ_TOKEN") return;
 
       if (!token || typeof token !== "string" || token.length < 10) {
         setAuthState("error");
         setErrorMsg("ไม่พบ Token หรือ Token ไม่ถูกต้อง");
-        
-        if (ev.source && "postMessage" in ev.source) {
-          (ev.source as Window).postMessage(
+
+        try {
+          (ev.source as Window | null)?.postMessage(
             { type: "NSJ_AUTH_ERROR", data: "invalid_token" },
             ev.origin
           );
-        }
+        } catch {}
+
         return;
       }
 
@@ -74,28 +73,43 @@ export default function ChatEmbedPage() {
         setAuthState("loading");
         setErrorMsg("");
 
-        const result = await exchangeToken(token);
+        await exchangeToken(token);
+
+        // ✅ เก็บ token ไว้ใช้ Bearer fallback ใน iframe (กัน cookie โดนบล็อก)
+        try {
+          sessionStorage.setItem(TOKEN_KEY, token);
+        } catch {}
 
         setAuthState("ok");
 
-        window.parent.postMessage(
-          { type: "NSJ_AUTH_OK" },
-          ev.origin
-        );
+        try {
+          window.parent.postMessage({ type: "NSJ_AUTH_OK" }, ev.origin);
+        } catch {}
       } catch (e: unknown) {
         const errorMessage = e instanceof Error ? e.message : "เกิดข้อผิดพลาด";
         setAuthState("error");
         setErrorMsg(errorMessage);
 
-        window.parent.postMessage(
-          { type: "NSJ_AUTH_ERROR", data: errorMessage },
-          ev.origin
-        );
+        // ✅ ถ้า auth fail ให้ลบ token ที่เก็บไว้
+        try {
+          sessionStorage.removeItem(TOKEN_KEY);
+        } catch {}
+
+        try {
+          window.parent.postMessage(
+            { type: "NSJ_AUTH_ERROR", data: errorMessage },
+            ev.origin
+          );
+        } catch {}
       }
     };
 
     window.addEventListener("message", handleMessage);
-    window.parent.postMessage({ type: "NSJ_EMBED_READY" }, "*");
+
+    // ✅ บอก parent ว่า iframe พร้อมรับ token แล้ว
+    try {
+      window.parent.postMessage({ type: "NSJ_EMBED_READY" }, "*");
+    } catch {}
 
     return () => window.removeEventListener("message", handleMessage);
   }, []);
@@ -103,49 +117,53 @@ export default function ChatEmbedPage() {
   if (!ready) return null;
 
   return (
-    <main style={{ 
-      height: "100vh", 
-      width: "100vw", 
-      margin: 0, 
-      padding: 0,
-      background: "var(--card, #fff)"
-    }}>
+    <main
+      style={{
+        height: "100vh",
+        width: "100vw",
+        margin: 0,
+        padding: 0,
+        background: "var(--card, #fff)",
+      }}
+    >
       {authState === "loading" && (
-        <div style={{ 
-          display: "flex", 
-          alignItems: "center", 
-          justifyContent: "center", 
-          height: "100vh",
-          fontFamily: "system-ui, sans-serif",
-          color: "#666",
-          flexDirection: "column",
-          gap: 12
-        }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            height: "100vh",
+            fontFamily: "system-ui, sans-serif",
+            color: "#666",
+            flexDirection: "column",
+            gap: 12,
+          }}
+        >
           <div style={{ fontSize: 24 }}>🔄</div>
           <div>กำลังตรวจสอบสิทธิ์...</div>
         </div>
       )}
 
       {authState === "error" && (
-        <div style={{ 
-          display: "flex", 
-          flexDirection: "column",
-          alignItems: "center", 
-          justifyContent: "center", 
-          height: "100vh",
-          fontFamily: "system-ui, sans-serif",
-          color: "#e11d48",
-          gap: 12,
-          padding: 20,
-          textAlign: "center"
-        }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            height: "100vh",
+            fontFamily: "system-ui, sans-serif",
+            color: "#e11d48",
+            gap: 12,
+            padding: 20,
+            textAlign: "center",
+          }}
+        >
           <div style={{ fontSize: 48 }}>❌</div>
           <div style={{ fontSize: 18, fontWeight: 600 }}>
             ไม่สามารถเข้าสู่ระบบได้
           </div>
-          <div style={{ fontSize: 14, color: "#666" }}>
-            {errorMsg}
-          </div>
+          <div style={{ fontSize: 14, color: "#666" }}>{errorMsg}</div>
           <button
             onClick={() => window.location.reload()}
             style={{
@@ -156,7 +174,7 @@ export default function ChatEmbedPage() {
               border: "none",
               borderRadius: 6,
               cursor: "pointer",
-              fontSize: 14
+              fontSize: 14,
             }}
           >
             ลองใหม่อีกครั้ง
@@ -164,9 +182,7 @@ export default function ChatEmbedPage() {
         </div>
       )}
 
-      {(authState === "ok" || authState === "idle") && (
-        <ChatShellNoSSR embedded />
-      )}
+      {(authState === "ok" || authState === "idle") && <ChatShellNoSSR embedded />}
     </main>
   );
 }

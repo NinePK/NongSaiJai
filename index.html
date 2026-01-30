@@ -10,16 +10,12 @@
         --nsj-z-frame: 9999;
         --nsj-z-btn: 10000;
       }
-
-      /* หน้านี้ “ตั้งใจให้โล่ง” */
       html,
       body {
         margin: 0;
         padding: 0;
         background: transparent;
       }
-
-      /* Overlay */
       #nsjOverlay {
         position: fixed;
         inset: 0;
@@ -34,8 +30,6 @@
         display: block;
         opacity: 1;
       }
-
-      /* Iframe */
       #nsjFrame {
         position: fixed;
         right: 18px;
@@ -59,8 +53,6 @@
         opacity: 1;
         transform: translateY(0) scale(1);
       }
-
-      /* Floating Button */
       #nsjButton {
         position: fixed;
         right: 18px;
@@ -87,8 +79,6 @@
       #nsjButton:active {
         transform: scale(0.98);
       }
-
-      /* Mobile */
       @media (max-width: 480px) {
         #nsjFrame {
           right: 10px;
@@ -108,7 +98,6 @@
     <div id="nsjOverlay" aria-hidden="true"></div>
 
     <button id="nsjButton" type="button" aria-label="เปิดแชทน้องใส่ใจ">
-      <!-- chat bubble icon -->
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path
           d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10Z"
@@ -126,14 +115,8 @@
       // CONFIG (แก้แค่นี้)
       // =========================
       const CONFIG = {
-        // ✅ Production NongSaiJai
         baseUrl: "https://mfec_nongsaijai.mfec.co.th",
-
-        // เก็บ token ไว้ฝั่ง landing page (parent) เท่านั้น
         tokenKey: "nsj_access_token",
-
-        // ความปลอดภัย: อนุญาต origin ของ iframe ที่จะรับ message
-        // (ปกติ = baseUrl)
         iframeOrigin: "https://mfec_nongsaijai.mfec.co.th",
       };
 
@@ -144,13 +127,14 @@
       let isOpen = false;
       let embedReady = false;
       let pendingTokenToSend = null;
+      let lastSentToken = null;
 
-      // ตั้ง src ของ iframe
+      // ตั้ง src ของ iframe (คงที่)
       frame.src = CONFIG.baseUrl + "/chat/embed";
 
-      // =========================
+      // -------------------------
       // Token handling (parent)
-      // =========================
+      // -------------------------
       function pickToken() {
         const hash = new URLSearchParams((window.location.hash || "").replace(/^#/, ""));
         const query = new URLSearchParams(window.location.search || "");
@@ -170,9 +154,27 @@
         return token;
       }
 
-      // =========================
+      // -------------------------
+      // postMessage
+      // -------------------------
+      function sendTokenToIframe(token) {
+        if (!token || token.length < 10) return;
+        if (!frame.contentWindow) return;
+
+        // กันส่งซ้ำถ้า token เดิม
+        if (token === lastSentToken) return;
+
+        try {
+          frame.contentWindow.postMessage({ type: "NSJ_TOKEN", token }, CONFIG.iframeOrigin);
+          lastSentToken = token;
+        } catch (e) {
+          console.warn("postMessage failed:", e);
+        }
+      }
+
+      // -------------------------
       // UI open/close
-      // =========================
+      // -------------------------
       function openChat() {
         const token = pickToken();
         if (!token || token.length < 10) {
@@ -193,17 +195,10 @@
           });
         });
 
-        // ถ้า iframe ready แล้ว ส่งทันที
+        // ✅ ไม่ส่งทันทีแบบสุ่มเวลาอีกแล้ว
+        // รอ NSJ_EMBED_READY แล้วค่อยส่งเพื่อให้ exchangeToken/cookie/bearer-fallback ทำงานชัวร์
         if (embedReady) {
-          sendTokenToIframe(token);
-        } else {
-          // ถ้ายังไม่ ready ให้รอ event NSJ_EMBED_READY
-          // และกันกรณีบาง browser โหลดช้า: ยิงซ้ำหลัง 500ms
-          setTimeout(() => {
-            if (isOpen && embedReady && pendingTokenToSend) {
-              sendTokenToIframe(pendingTokenToSend);
-            }
-          }, 500);
+          sendTokenToIframe(pendingTokenToSend);
         }
       }
 
@@ -227,23 +222,9 @@
         else openChat();
       }
 
-      // =========================
-      // postMessage
-      // =========================
-      function sendTokenToIframe(token) {
-        try {
-          frame.contentWindow.postMessage(
-            { type: "NSJ_TOKEN", token },
-            CONFIG.iframeOrigin
-          );
-        } catch (e) {
-          console.warn("postMessage failed:", e);
-        }
-      }
-
-      // =========================
+      // -------------------------
       // Event bindings
-      // =========================
+      // -------------------------
       btn.addEventListener("click", toggleChat);
       overlay.addEventListener("click", closeChat);
 
@@ -257,8 +238,12 @@
         if (e.origin !== CONFIG.iframeOrigin) return;
 
         const data = e.data || {};
+
+        // ✅ iframe พร้อมแล้ว
         if (data.type === "NSJ_EMBED_READY") {
           embedReady = true;
+
+          // ถ้าเปิดอยู่แล้วและมี token ค้างอยู่ -> ส่งเลย
           if (isOpen && pendingTokenToSend) {
             sendTokenToIframe(pendingTokenToSend);
           }
@@ -266,32 +251,22 @@
         }
 
         if (data.type === "NSJ_AUTH_OK") {
-          // ถ้าต้องการ log เฉย ๆ
-          // console.log("NSJ auth ok");
+          // auth สำเร็จ (cookie-first หรือ bearer-fallback อยู่ฝั่ง iframe)
           return;
         }
 
         if (data.type === "NSJ_AUTH_ERROR") {
           console.warn("NSJ auth error:", data.data);
-          // ปิด chat หรือแสดง error ก็ได้
+          // จะปิด chat ก็ได้ ถ้าต้องการ
           // closeChat();
           return;
         }
 
-        // กรณีเปิด admin จากใน widget (ถ้าคุณใช้)
+        // เปิด admin จากใน widget
         if (data.type === "NSJ_OPEN_ADMIN" && data.url) {
           window.location.href = data.url;
         }
       });
-
-      // ยิง ping บอก iframe ว่า parent พร้อม (optional)
-      // (บางทีมคุณอยากให้ iframe รู้ว่า parent active แล้ว)
-      function pingEmbed() {
-        try {
-          frame.contentWindow.postMessage({ type: "NSJ_PARENT_READY" }, CONFIG.iframeOrigin);
-        } catch {}
-      }
-      setTimeout(pingEmbed, 400);
     </script>
   </body>
 </html>
