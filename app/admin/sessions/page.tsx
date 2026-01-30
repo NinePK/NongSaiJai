@@ -2,29 +2,50 @@
 import AdminSessionsClient from "./sessions.client";
 import { pool } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type SearchParams = {
   q?: string;
   status?: string;
   category?: string;
   mpsent?: string;
-  month?: string; 
+  month?: string;
+
+  // ✅ multi filters
+  concern_scope?: string | string[];
+  backoffice_team?: string | string[];
 };
+
+function toArr(v: string | string[] | undefined) {
+  if (!v) return [];
+  return Array.isArray(v) ? v : [v];
+}
 
 export default async function AdminSessionsPage({
   searchParams,
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  // ✅ Next.js App Router: searchParams เป็น Promise
-  const {
-    q = "",
-    status = "ALL",
-    category = "ALL",
-    mpsent = "ALL",
-    month = "",
-  } = await searchParams;
+  const sp = await searchParams;
+
+  const q = sp.q ?? "";
+  const status = sp.status ?? "ALL";
+  const category = sp.category ?? "ALL";
+  const mpsent = sp.mpsent ?? "ALL";
+  const month = sp.month ?? "";
+
+  const concernScopes = toArr(sp.concern_scope);
+  const backofficeTeams = toArr(sp.backoffice_team);
 
   const limit = 50;
+
+  // ✅ JSON filter conditions (override_notes)
+  // - concernScopes: match any targets[].scope in selected
+  // - backofficeTeams: match any targets[] where scope=BACKOFFICE and team_code in selected
+  //
+  // NOTE: override_notes is TEXT but contains JSON string -> cast ::jsonb
+  // Assumption: stored JSON is always valid (ตามตัวอย่างของคุณ)
   const { rows: sessions } = await pool.query(
     `
     select
@@ -48,19 +69,44 @@ export default async function AdminSessionsPage({
         $5 = ''
         or (
           last_message_at is not null
-          and date_trunc('month', last_message_at)
-              = to_date($5, 'YYYY-MM')
+          and date_trunc('month', last_message_at) = to_date($5, 'YYYY-MM')
         )
       )
+
+      -- ✅ concern_scope filter (from override_notes.targets[].scope)
+      and (
+        cardinality($6::text[]) = 0
+        or exists (
+          select 1
+          from jsonb_array_elements(
+            coalesce((override_notes::jsonb)->'targets', '[]'::jsonb)
+          ) as t
+          where (t->>'scope') = any($6::text[])
+        )
+      )
+
+      -- ✅ backoffice_team filter (from override_notes.targets[] where scope=BACKOFFICE)
+      and (
+        cardinality($7::text[]) = 0
+        or exists (
+          select 1
+          from jsonb_array_elements(
+            coalesce((override_notes::jsonb)->'targets', '[]'::jsonb)
+          ) as t
+          where (t->>'scope') = 'BACKOFFICE'
+            and (t->>'team_code') = any($7::text[])
+        )
+      )
+
     order by
       last_message_at desc nulls last
-    limit $6
+    limit $8
     `,
-    [q, status, category, mpsent, month, limit]
+    [q, status, category, mpsent, month, concernScopes, backofficeTeams, limit]
   );
 
   // =========================
-  // 2) KPI (นับตาม filter ชุดเดียวกัน)
+  // KPI (นับตาม filter ชุดเดียวกัน)
   // =========================
   const { rows: kpiRows } = await pool.query(
     `
@@ -89,12 +135,34 @@ export default async function AdminSessionsPage({
         $5 = ''
         or (
           last_message_at is not null
-          and date_trunc('month', last_message_at)
-              = to_date($5, 'YYYY-MM')
+          and date_trunc('month', last_message_at) = to_date($5, 'YYYY-MM')
+        )
+      )
+
+      and (
+        cardinality($6::text[]) = 0
+        or exists (
+          select 1
+          from jsonb_array_elements(
+            coalesce((override_notes::jsonb)->'targets', '[]'::jsonb)
+          ) as t
+          where (t->>'scope') = any($6::text[])
+        )
+      )
+
+      and (
+        cardinality($7::text[]) = 0
+        or exists (
+          select 1
+          from jsonb_array_elements(
+            coalesce((override_notes::jsonb)->'targets', '[]'::jsonb)
+          ) as t
+          where (t->>'scope') = 'BACKOFFICE'
+            and (t->>'team_code') = any($7::text[])
         )
       )
     `,
-    [q, status, category, mpsent, month]
+    [q, status, category, mpsent, month, concernScopes, backofficeTeams]
   );
 
   const kpi = kpiRows?.[0] ?? null;
@@ -109,6 +177,8 @@ export default async function AdminSessionsPage({
       initialCategory={category}
       initialMpSent={mpsent}
       initialMonth={month}
+      initialConcernScopes={concernScopes}
+      initialBackofficeTeams={backofficeTeams}
     />
   );
 }
